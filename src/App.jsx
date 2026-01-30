@@ -1,208 +1,210 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, Search, MapPin, Loader2, MessageCircle, Sparkles, Zap, Flame } from 'lucide-react'; 
-import { onSnapshot, doc } from 'firebase/firestore'; 
-import { onAuthStateChanged } from 'firebase/auth';
-import { db, auth } from './firebase'; 
-
-import { loginUser } from './services/authService';
-import { getNearbyUsers } from './services/feedService';
-import { swipeRight, swipeLeft, reportUser } from './services/interactionService';
-import { deleteMyProfile } from './services/profileService';
-import { subscribeToUnreadCount } from './services/chatService';
-
-import { Toast, LoginScreen } from './components/Shared';
+import { auth, db, provider } from './firebase';
+import { signInWithPopup } from 'firebase/auth';
+import { doc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import { Card, AdCard } from './components/Cards';
-import { MatchPopup, ReportModal, DetailModal, ProfileModal } from './components/Modals';
+import { ChatModal } from './components/Chat';
+import { ProfileModal, MatchPopup, DetailModal, ReportModal } from './components/Modals';
 import { CreateProfileForm } from './components/Forms';
-import { ChatModal } from './components/Chat'; 
+import { triggerHaptic } from './services/utils';
+import { MessageCircle, User, Loader2, Zap, Sparkles, ShieldCheck, MapPin, Search } from 'lucide-react';
 
+// --- NEW COMPONENT: LANDING PAGE (FOR GOOGLE ADSENSE APPROVAL) ---
+const LandingPage = ({ onLogin }) => (
+  <div className="min-h-screen bg-black text-white selection:bg-pink-500">
+    {/* Navigation */}
+    <nav className="max-w-6xl mx-auto p-6 flex justify-between items-center border-b border-white/5">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 bg-pink-600 rounded-lg flex items-center justify-center">
+          <Zap size={18} fill="white"/>
+        </div>
+        <h1 className="text-xl font-black italic tracking-tighter">VIBE.</h1>
+      </div>
+      <button onClick={onLogin} className="bg-white text-black px-6 py-2.5 rounded-2xl font-black text-sm hover:scale-105 transition-transform active:scale-95">
+        LOGIN
+      </button>
+    </nav>
+
+    {/* Hero Section */}
+    <header className="max-w-4xl mx-auto px-6 py-24 text-center">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+        <h2 className="text-6xl md:text-8xl font-black mb-8 leading-tight tracking-tighter italic">
+          BETTER LIVING <br/>
+          <span className="text-pink-600 text-glow">TOGETHER.</span>
+        </h2>
+        <p className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto font-medium mb-12">
+          The first lifestyle-first roommate finder in India. Match with roommates based on your budget, sleeping habits, and lifestyle vibe. No brokers. No spam. Just vibes.
+        </p>
+        <button onClick={onLogin} className="group relative bg-pink-600 px-10 py-5 rounded-[2rem] font-black text-xl shadow-[0_0_40px_rgba(236,72,153,0.3)] hover:scale-105 transition-all">
+          FIND YOUR ROOMMATE
+          <div className="absolute inset-0 rounded-[2rem] bg-white opacity-0 group-hover:opacity-10 transition-opacity"></div>
+        </button>
+      </motion.div>
+    </header>
+
+    {/* SEO Features Section (Bots love this) */}
+    <section className="max-w-6xl mx-auto px-6 py-20 grid md:grid-cols-3 gap-8">
+      {[
+        { icon: <MapPin className="text-pink-500"/>, title: "Location Based", desc: "Find roommates in Dehradun, Roorkee, Delhi, and across India near your college or office." },
+        { icon: <ShieldCheck className="text-sky-500"/>, title: "Verified Profiles", desc: "Every user is verified via Google authentication to ensure safety and authenticity." },
+        { icon: <Sparkles className="text-yellow-500"/>, title: "Lifestyle Match", desc: "Are you a clean freak or a party animal? Our algorithm matches your lifestyle exactly." }
+      ].map((f, i) => (
+        <div key={i} className="p-10 bg-white/5 rounded-[3rem] border border-white/10 hover:border-white/20 transition-colors">
+          <div className="mb-6">{f.icon}</div>
+          <h3 className="text-xl font-black mb-4 uppercase tracking-tighter italic">{f.title}</h3>
+          <p className="text-slate-500 font-bold leading-relaxed">{f.desc}</p>
+        </div>
+      ))}
+    </section>
+
+    {/* Footer with Mandatory AdSense Links */}
+    <footer className="max-w-6xl mx-auto p-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8">
+      <p className="text-slate-600 font-bold text-xs uppercase tracking-widest">© 2026 Vibe Roommate Finder India</p>
+      <div className="flex gap-8 text-[10px] font-black uppercase text-slate-500 tracking-widest">
+        <a href="/privacy.html" className="hover:text-pink-500 transition-colors">Privacy Policy</a>
+        <a href="/terms.html" className="hover:text-pink-500 transition-colors">Terms of Service</a>
+        <a href="mailto:support@vibeapp.in" className="hover:text-pink-500 transition-colors">Support</a>
+      </div>
+    </footer>
+  </div>
+);
+
+// --- MAIN APP COMPONENT ---
 export default function App() {
-  const [user, setUser] = useState(null); 
-  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [user, setUser] = useState(null);
   const [myProfile, setMyProfile] = useState(null);
-  const [totalUnread, setTotalUnread] = useState(0);
-  const [filteredCards, setFilteredCards] = useState([]);
-  const [loadingMore, setLoadingMore] = useState(false); 
-  const swipedIdsRef = useRef(new Set()); 
-
-  const [match, setMatch] = useState(null);
-  const [showForm, setShowForm] = useState(false);
-  const [editingProfile, setEditingProfile] = useState(null); 
-  const [showProfile, setShowProfile] = useState(false);
-  const [showChat, setShowChat] = useState(false); 
-  const [toast, setToast] = useState(null);
-  const [reportingPerson, setReportingPerson] = useState(null); 
-  const [infoPerson, setInfoPerson] = useState(null);
+  const [people, setPeople] = useState([]);
+  const [loading, setLoading] = useState(true);
   
-  const [searchRadius, setSearchRadius] = useState(() => Number(localStorage.getItem('roomie_radius')) || 50);
-  const [maxRent, setMaxRent] = useState(50000); 
-  const [genderFilter, setGenderFilter] = useState("All"); 
-  const [blockedUsers, setBlockedUsers] = useState(() => JSON.parse(localStorage.getItem('roomie_blocks')) || []); 
-  const [browsingLocation, setBrowsingLocation] = useState(null);
-  const [locationName, setLocationName] = useState("Locating...");
-
-  const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 3000); };
-
-  const triggerHaptic = (type = 'light') => {
-    if (!window.navigator.vibrate) return;
-    if (type === 'success') window.navigator.vibrate([50, 30, 50]);
-    else window.navigator.vibrate(10);
-  };
+  const [activeTab, setActiveTab] = useState('swipe');
+  const [showProfileForm, setShowProfileForm] = useState(false);
+  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [reportingPerson, setReportingPerson] = useState(null);
+  const [matchData, setMatchData] = useState(null);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => { setUser(u); setLoadingAuth(false); });
+    return auth.onAuthStateChanged(u => {
+      setUser(u);
+      if (!u) setLoading(false);
+    });
   }, []);
 
   useEffect(() => {
-    if (user) {
-      const unsubProfile = onSnapshot(doc(db, "profiles", user.uid), (docSnap) => {
-        if (docSnap.exists()) {
-          const data = { id: docSnap.id, ...docSnap.data() };
-          setMyProfile(data);
-          if (data.lat && data.lng) {
-            setBrowsingLocation({ lat: data.lat, lng: data.lng });
-            setLocationName(data.city || "My Location");
-          }
-        } else setMyProfile(null);
-      });
-      const unsubUnread = subscribeToUnreadCount(user.uid, (count) => setTotalUnread(count));
-      return () => { unsubProfile(); unsubUnread(); };
-    }
+    if (!user) return;
+    
+    const unsubMe = onSnapshot(doc(db, "users", user.uid), (doc) => {
+      setMyProfile(doc.exists() ? { id: doc.id, ...doc.data() } : null);
+    });
+
+    const q = query(collection(db, "users"), where("__name__", "!=", user.uid));
+    const unsubPeople = onSnapshot(q, (snapshot) => {
+      setPeople(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    });
+
+    return () => { unsubMe(); unsubPeople(); };
   }, [user]);
 
-  const loadDeck = async () => {
-    if (!user || !browsingLocation) return;
-    setLoadingMore(true);
-    try {
-      const profiles = await getNearbyUsers(user, browsingLocation, searchRadius, { gender: genderFilter }, blockedUsers);
-      const budgetMatches = profiles.filter(p => Number(p.rent) <= maxRent);
-      const freshProfiles = budgetMatches.filter(p => !swipedIdsRef.current.has(p.id));
-      
-      let deck = [];
-      freshProfiles.forEach((p, i) => {
-        deck.push({ ...p, type: 'profile' });
-        if ((i + 1) % 5 === 0) deck.push({ id: `ad-${i}`, type: 'ad' });
+  const swipeStack = useMemo(() => {
+    let list = [...people];
+    if (list.length >= 2) {
+      list.splice(2, 0, { 
+        id: 'ad-premium', 
+        isAd: true, 
+        title: "Stop Swiping, Start Living", 
+        desc: "Unlock Premium to see everyone who vibed with your profile.",
+        cta: "GET PREMIUM"
       });
-      setFilteredCards(deck);
-    } catch (e) { console.error(e); }
-    setLoadingMore(false);
-  };
-
-  useEffect(() => { 
-    if (browsingLocation) {
-      localStorage.setItem('roomie_radius', searchRadius); 
-      swipedIdsRef.current.clear(); 
-      loadDeck(); 
     }
-  }, [user?.uid, browsingLocation, searchRadius, genderFilter, maxRent, blockedUsers.length]);
+    return list.reverse();
+  }, [people]);
 
-  const handleSwipe = async (dir, item) => {
-    if (item.type === 'ad') return;
-    if (!myProfile) { triggerHaptic(); showToast("Tell us who you are first! 👤", "error"); setShowForm(true); return; }
-    
-    triggerHaptic();
-    swipedIdsRef.current.add(item.id);
+  const handleLogin = async () => {
     try {
-      if (dir === 'right') {
-        const res = await swipeRight(user.uid, item.uid);
-        if (res.isMatch) { triggerHaptic('success'); setMatch(item); }
-      } else await swipeLeft(user.uid, item.uid);
-    } catch (e) { console.error(e); }
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error("Login Error:", error);
+    }
   };
 
-  if (loadingAuth) return <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950"><Loader2 className="animate-spin text-pink-500 w-12 h-12"/></div>;
-  if (!user) return <LoginScreen onLogin={loginUser} />;
-  
+  const onSwipe = async (direction, item) => {
+    triggerHaptic(direction === 'right' ? 'success' : 'light');
+    if (item.isAd && direction === 'right') {
+      alert("Opening Premium Benefits...");
+      return;
+    }
+    console.log(`Swiped ${direction} on ${item.name || 'Ad'}`);
+  };
+
+  if (loading) return (
+    <div className="h-screen bg-black flex items-center justify-center">
+      <Loader2 className="text-pink-600 animate-spin" size={40} />
+    </div>
+  );
+
+  // If not logged in, show the SEO-friendly landing page
+  if (!user) return <LandingPage onLogin={handleLogin} />;
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-[#050505] font-sans fixed inset-0 overflow-hidden text-slate-100">
-      <AnimatePresence mode='wait'>
-        {match && <MatchPopup person={match} onClose={() => setMatch(null)} onChat={() => { setMatch(null); setShowChat(true); }} />}
-        {infoPerson && <DetailModal person={infoPerson} onClose={() => setInfoPerson(null)} />}
-        {showForm && <CreateProfileForm user={user} existingData={editingProfile} onCancel={() => { setShowForm(false); setEditingProfile(null); }} showToast={showToast} />}
-        {showProfile && <ProfileModal user={user} myProfile={myProfile} onClose={() => setShowProfile(false)} onDelete={async (id) => { if(window.confirm("Delete profile?")) { await deleteMyProfile(id); setShowProfile(false); }}} onEdit={(p) => { setEditingProfile(p); setShowProfile(false); setShowForm(true); }} />}
-        {showChat && <ChatModal user={user} onClose={() => setShowChat(false)} />}
-        {reportingPerson && <ReportModal person={reportingPerson} onConfirm={async (r) => { await reportUser(user.uid, reportingPerson.id, reportingPerson.name, r); setBlockedUsers([...blockedUsers, reportingPerson.id]); setReportingPerson(null); }} onCancel={() => setReportingPerson(null)} />}
-        {toast && <Toast message={toast.msg} type={toast.type} />}
-      </AnimatePresence>
-
-      {/* ✅ HYPER-ATTRACTIVE HEADER */}
-      <div className="fixed top-0 w-full z-20 px-4 pt-6">
-        <div className="max-w-md mx-auto glass-card rounded-[2.5rem] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
-           <div className="flex items-center justify-between mb-5">
-             <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-gradient-to-br from-pink-500 to-rose-600 rounded-2xl shadow-lg shadow-pink-500/20">
-                  <MapPin className="text-white" size={22} />
-                </div>
-                <div>
-                    <p className="text-[10px] text-pink-500 font-black uppercase tracking-[0.3em]">Live Vibes</p>
-                    <h2 className="text-white font-black text-xl tracking-tight leading-none text-glow">{locationName}</h2>
-                </div>
-             </div>
-             <button onClick={() => { triggerHaptic(); setShowProfile(true); }} className="relative">
-               <div className="absolute inset-[-4px] bg-gradient-to-tr from-pink-500 to-violet-500 rounded-full blur-md opacity-50 animate-pulse"></div>
-               <img src={user.photoURL} className="w-11 h-11 rounded-full border-2 border-white relative z-10"/>
-               {!myProfile && <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full border-2 border-slate-900 z-20 flex items-center justify-center font-bold text-[8px] text-black">!</div>}
-             </button>
-           </div>
-
-           <div className="flex flex-col gap-4 pt-4 border-t border-white/10">
-             <div className="flex justify-between items-center text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-1.5 text-pink-400 bg-pink-500/10 px-2 py-1 rounded-md">
-                    <Zap size={12} fill="currentColor"/>
-                    <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)} className="bg-transparent outline-none cursor-pointer">
-                      <option value="All">All Vibe</option><option value="Male">Men</option><option value="Female">Women</option>
-                    </select>
-                  </div>
-                  <span className="flex items-center gap-1"><Sparkles size={12}/> {searchRadius}km</span>
-                </div>
-                <span className="text-emerald-400">Budget: ₹{maxRent.toLocaleString()}</span>
-             </div>
-             <div className="flex gap-6 items-center">
-                <input type="range" min="1" max="100" value={searchRadius} onChange={e=>setSearchRadius(Number(e.target.value))} className="flex-1 h-1.5 bg-slate-800 rounded-full accent-pink-500 appearance-none cursor-pointer"/>
-                <input type="range" min="2000" max="100000" step="1000" value={maxRent} onChange={e=>setMaxRent(Number(e.target.value))} className="flex-1 h-1.5 bg-slate-800 rounded-full accent-emerald-500 appearance-none cursor-pointer"/>
-             </div>
-           </div>
-        </div>
+    <div className="h-screen bg-black text-white overflow-hidden flex flex-col">
+      {/* Top Header */}
+      <div className="p-6 flex justify-between items-center z-50 bg-gradient-to-b from-black to-transparent">
+        <button onClick={() => setActiveTab('profile')} className="p-3 bg-white/5 rounded-2xl border border-white/10 active:scale-90 transition-transform">
+          <User size={24} />
+        </button>
+        <h1 className="text-2xl font-black italic tracking-tighter flex items-center gap-2">
+          VIBE <Zap size={20} className="text-pink-500 fill-pink-500"/>
+        </h1>
+        <button onClick={() => setActiveTab('chat')} className="p-3 bg-white/5 rounded-2xl border border-white/10 relative active:scale-90 transition-transform">
+          <MessageCircle size={24} />
+          <div className="absolute top-2 right-2 w-3 h-3 bg-pink-600 rounded-full border-2 border-black"></div>
+        </button>
       </div>
 
-      {/* ✅ DECK AREA */}
-      <div className="relative w-full h-full flex items-center justify-center pt-32 px-4">
-        <div className="w-full max-w-sm h-full max-h-[750px] flex items-center justify-center relative">
-          {filteredCards.length > 0 ? filteredCards.map(item => (
-            item.type === 'ad' ? <AdCard key={item.id} onSwipe={handleSwipe} /> :
-            <Card key={item.id} person={item} onSwipe={handleSwipe} onCardLeftScreen={(id) => setFilteredCards(prev => { const n = prev.filter(c => c.id !== id); if(n.length < 3 && !loadingMore) loadDeck(); return n; })} userLocation={browsingLocation} onReport={setReportingPerson} onInfo={setInfoPerson} />
-          )) : (
-            <div className="relative flex flex-col items-center">
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                    <div className="w-24 h-24 bg-pink-500/20 rounded-full animate-radar"></div>
-                    <div className="w-24 h-24 bg-pink-500/20 rounded-full animate-radar [animation-delay:0.7s]"></div>
-                </div>
-                <div className="bg-slate-900 p-10 rounded-full border-2 border-pink-500/30 relative z-10 shadow-[0_0_50px_rgba(236,72,153,0.3)]">
-                    <Flame size={48} className="text-pink-500 animate-bounce"/>
-                </div>
-                <h3 className="mt-14 text-white font-black text-2xl tracking-tighter text-glow italic">Finding your Soulmate Roomie...</h3>
-                <p className="text-slate-500 font-bold text-xs text-center max-w-[220px] mt-4 uppercase tracking-[0.2em] leading-relaxed">Destiny is loading. Try increasing your radius or budget.</p>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* ✅ GLOWING BUTTONS */}
-      <div className="fixed bottom-10 left-0 right-0 px-8 flex justify-between items-center pointer-events-none">
-        <motion.button whileTap={{ scale: 0.8 }} onClick={() => { triggerHaptic(); setShowChat(true); }} className="pointer-events-auto bg-slate-900/80 border border-white/10 text-white w-16 h-16 rounded-full shadow-2xl flex items-center justify-center backdrop-blur-xl relative">
-          <MessageCircle size={32} className={totalUnread > 0 ? "text-pink-500" : "text-slate-400"}/>
-          {totalUnread > 0 && <div className="absolute -top-1 -right-1 bg-gradient-to-tr from-red-500 to-orange-500 text-white text-[10px] font-black w-7 h-7 rounded-full flex items-center justify-center border-2 border-slate-950 shadow-lg animate-bounce">{totalUnread}</div>}
-        </motion.button>
+      {/* Card Stack */}
+      <div className="flex-1 relative flex justify-center items-center p-4">
+        <AnimatePresence>
+          {swipeStack.map((item) => (
+            item.isAd ? (
+              <AdCard key={item.id} adData={item} onSwipe={onSwipe} />
+            ) : (
+              <Card 
+                key={item.id} 
+                person={item} 
+                myProfile={myProfile}
+                onSwipe={onSwipe} 
+                onInfo={setSelectedPerson} 
+                onReport={setReportingPerson}
+              />
+            )
+          ))}
+        </AnimatePresence>
 
-        {!myProfile && (
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { triggerHaptic(); setShowForm(true); }} className="pointer-events-auto bg-gradient-to-tr from-pink-600 to-rose-400 text-white px-8 h-16 rounded-full shadow-[0_15px_40px_rgba(236,72,153,0.4)] flex items-center gap-3 font-black uppercase tracking-widest text-sm relative overflow-hidden group">
-            <div className="absolute inset-0 bg-white/20 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 skew-x-[-20deg]"></div>
-            <Plus size={24} strokeWidth={4}/> Join Now
-          </motion.button>
+        {people.length === 0 && !loading && (
+          <div className="text-center opacity-30">
+            <Search size={64} className="mx-auto mb-4 text-slate-500" />
+            <p className="font-black uppercase tracking-widest text-sm italic">Searching your area...</p>
+          </div>
         )}
       </div>
+
+      {/* Navigation Modals */}
+      <AnimatePresence>
+        {activeTab === 'profile' && (
+          <ProfileModal 
+            user={user} 
+            myProfile={myProfile} 
+            onClose={() => setActiveTab('swipe')} 
+            onEdit={() => setShowProfileForm(true)}
+          />
+        )}
+        {activeTab === 'chat' && <ChatModal user={user} onClose={() => setActiveTab('swipe')} />}
+        {showProfileForm && <CreateProfileForm user={user} existingData={myProfile} onCancel={() => setShowProfileForm(false)} />}
+        {selectedPerson && <DetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />}
+        {reportingPerson && <ReportModal person={reportingPerson} onConfirm={() => setReportingPerson(null)} onCancel={() => setReportingPerson(null)} />}
+        {matchData && <MatchPopup person={matchData} onClose={() => setMatchData(null)} />}
+      </AnimatePresence>
     </div>
   );
 }
