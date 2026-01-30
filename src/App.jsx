@@ -11,6 +11,7 @@ import { triggerHaptic } from './services/utils';
 import { swipeRight, swipeLeft } from './services/interactionService';
 import { MessageCircle, User, Loader2, Zap, Sparkles, ShieldCheck, MapPin, Search } from 'lucide-react';
 
+// SEO-friendly Landing Page for AdSense
 const LandingPage = ({ onLogin }) => (
   <div className="min-h-screen bg-black text-white selection:bg-pink-500">
     <nav className="max-w-6xl mx-auto p-6 flex justify-between items-center border-b border-white/5">
@@ -24,7 +25,6 @@ const LandingPage = ({ onLogin }) => (
         LOGIN
       </button>
     </nav>
-
     <header className="max-w-4xl mx-auto px-6 py-24 text-center">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
         <h2 className="text-6xl md:text-8xl font-black mb-8 leading-tight tracking-tighter italic">
@@ -32,21 +32,13 @@ const LandingPage = ({ onLogin }) => (
           <span className="text-pink-600 text-glow">TOGETHER.</span>
         </h2>
         <p className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto font-medium mb-12">
-          India's lifestyle-first roommate finder. No brokers. Just vibes.
+          India's lifestyle-first roommate finder. Match based on your vibe, budget, and habits.
         </p>
-        <button onClick={onLogin} className="group relative bg-pink-600 px-10 py-5 rounded-[2rem] font-black text-xl shadow-[0_0_40px_rgba(236,72,153,0.3)] hover:scale-105 transition-all">
+        <button onClick={onLogin} className="bg-pink-600 px-10 py-5 rounded-[2rem] font-black text-xl shadow-[0_0_40px_rgba(236,72,153,0.3)]">
           FIND YOUR ROOMMATE
         </button>
       </motion.div>
     </header>
-
-    <footer className="max-w-6xl mx-auto p-12 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8">
-      <p className="text-slate-600 font-bold text-xs uppercase tracking-widest">© 2026 Vibe Roommate Finder</p>
-      <div className="flex gap-8 text-[10px] font-black uppercase text-slate-500 tracking-widest">
-        <a href="/privacy.html">Privacy Policy</a>
-        <a href="/terms.html">Terms of Service</a>
-      </div>
-    </footer>
   </div>
 );
 
@@ -71,42 +63,25 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     
-    // ✅ Collection renamed to 'users'
+    // Sync my profile from 'users' collection
     const unsubMe = onSnapshot(doc(db, "users", user.uid), (doc) => {
       setMyProfile(doc.exists() ? { id: doc.id, ...doc.data() } : null);
-    }, (err) => console.error("Profile sync error:", err));
+    });
 
+    // Fetch other users from 'users' collection
     const q = query(collection(db, "users"), where("__name__", "!=", user.uid));
     const unsubPeople = onSnapshot(q, (snapshot) => {
       setPeople(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
-    }, (err) => {
-      console.error("People sync error:", err);
-      setLoading(false);
-    });
+    }, (err) => setLoading(false));
 
     return () => { unsubMe(); unsubPeople(); };
   }, [user]);
 
-  const swipeStack = useMemo(() => {
-    let list = [...people];
-    if (list.length >= 2) {
-      list.splice(2, 0, { id: 'ad-premium', isAd: true });
-    }
-    return list.reverse();
-  }, [people]);
-
-  const handleLogin = async () => {
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login Error:", error);
-    }
-  };
-
+  // Handle Swipe logic and update local state
   const onSwipe = async (direction, item) => {
-    triggerHaptic(direction === 'right' ? 'success' : 'light');
     if (item.isAd) return;
+    triggerHaptic(direction === 'right' ? 'success' : 'light');
 
     try {
       if (direction === 'right') {
@@ -115,11 +90,20 @@ export default function App() {
       } else {
         await swipeLeft(user.uid, item.id);
       }
-      // ✅ Update state immediately to move to next card
+      // Remove swiped user from UI list
       setPeople(prev => prev.filter(p => p.id !== item.id));
     } catch (error) {
-      console.error("Swipe failed:", error);
+      console.error("Interaction failed. Check Firebase Rules:", error);
     }
+  };
+
+  const onCardLeftScreen = (id) => {
+    // Ensuring state stays in sync after animation finishes
+    setPeople(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleLogin = async () => {
+    try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
   };
 
   if (loading) return (
@@ -133,31 +117,23 @@ export default function App() {
   return (
     <div className="h-screen bg-black text-white overflow-hidden flex flex-col">
       <div className="p-6 flex justify-between items-center z-50">
-        <button onClick={() => setActiveTab('profile')} className="p-3 bg-white/5 rounded-2xl border border-white/10">
-          <User size={24} />
-        </button>
+        <button onClick={() => setActiveTab('profile')} className="p-3 bg-white/5 rounded-2xl border border-white/10 active:scale-90 transition-transform"><User size={24} /></button>
         <h1 className="text-2xl font-black italic tracking-tighter flex items-center gap-2">VIBE <Zap size={20} className="text-pink-500 fill-pink-500"/></h1>
-        <button onClick={() => setActiveTab('chat')} className="p-3 bg-white/5 rounded-2xl border border-white/10 relative">
-          <MessageCircle size={24} />
-          <div className="absolute top-2 right-2 w-3 h-3 bg-pink-600 rounded-full border-2 border-black"></div>
-        </button>
+        <button onClick={() => setActiveTab('chat')} className="p-3 bg-white/5 rounded-2xl border border-white/10 relative active:scale-90 transition-transform"><MessageCircle size={24} /></button>
       </div>
 
       <div className="flex-1 relative flex justify-center items-center p-4">
         <AnimatePresence>
-          {swipeStack.map((item) => (
-            item.isAd ? (
-              <AdCard key={item.id} onSwipe={onSwipe} />
-            ) : (
-              <Card 
-                key={item.id} 
-                person={item} 
-                myProfile={myProfile}
-                onSwipe={onSwipe} 
-                onInfo={setSelectedPerson} 
-                onReport={setReportingPerson}
-              />
-            )
+          {people.slice(0, 3).reverse().map((person) => (
+            <Card 
+              key={person.id} 
+              person={person} 
+              myProfile={myProfile}
+              onSwipe={onSwipe} 
+              onCardLeftScreen={onCardLeftScreen}
+              onInfo={setSelectedPerson} 
+              onReport={setReportingPerson}
+            />
           ))}
         </AnimatePresence>
 
