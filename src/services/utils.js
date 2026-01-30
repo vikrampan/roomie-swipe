@@ -1,8 +1,5 @@
-/**
- * src/services/utils.js
- */
+// src/services/utils.js
 
-// 1. Precise Distance Calculator (Haversine)
 export const getDistance = (lat1, lon1, lat2, lon2) => {
   if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
   const R = 6371; 
@@ -15,7 +12,6 @@ export const getDistance = (lat1, lon1, lat2, lon2) => {
   return Math.round(R * c * 10) / 10;
 };
 
-// 2. Compatibility Algorithm (Vibe Score)
 export const calculateCompatibility = (myTags = [], theirTags = []) => {
   if (!myTags || !theirTags || myTags.length === 0) return 75;
   const common = myTags.filter(tag => theirTags.includes(tag));
@@ -23,28 +19,25 @@ export const calculateCompatibility = (myTags = [], theirTags = []) => {
   return Math.min(Math.max(baseScore + 50, 60), 99);
 };
 
-// 3. Reverse Geocoding (With 403 Fallback)
+// ✅ FIX: Prevents "403 Forbidden" from hanging the location spinner
 export const getCityFromCoordinates = async (lat, lng) => {
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-    if (!res.ok) throw new Error("API Blocked");
+    if (!res.ok) throw new Error("API Limit Reached");
     const data = await res.json();
-    return data.address.city || data.address.town || data.address.village || "Local Zone";
+    return data.address.city || data.address.town || data.address.village || "Local Area";
   } catch (e) { 
-    // ✅ This prevents the location spinner from staying stuck forever
-    console.warn("Location service unavailable, using default.");
-    return "Dehradun"; 
+    console.warn("Location API blocked. Using fallback.");
+    return "Dehradun"; // Default fallback to let users proceed
   }
 };
 
-// 4. Haptic Feedback Engine
 export const triggerHaptic = (type = 'light') => {
   if (!window.navigator?.vibrate) return;
   const patterns = { success: [50, 30, 50], warning: 100, heavy: 80, light: 15 };
   window.navigator.vibrate(patterns[type] || patterns.light);
 };
 
-// 5. Image Compression
 export const compressImage = (file) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
