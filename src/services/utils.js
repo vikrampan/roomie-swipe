@@ -4,7 +4,7 @@
 
 // 1. Precise Distance Calculator (Haversine)
 export const getDistance = (lat1, lon1, lat2, lon2) => {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return 999;
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
   const R = 6371; 
   const dLat = (lat2 - lat1) * (Math.PI / 180);
   const dLon = (lon2 - lon1) * (Math.PI / 180);
@@ -17,20 +17,24 @@ export const getDistance = (lat1, lon1, lat2, lon2) => {
 
 // 2. Compatibility Algorithm (Vibe Score)
 export const calculateCompatibility = (myTags = [], theirTags = []) => {
-  if (!myTags || !theirTags || myTags.length === 0) return 60;
+  if (!myTags || !theirTags || myTags.length === 0) return 75;
   const common = myTags.filter(tag => theirTags.includes(tag));
   const baseScore = Math.round((common.length / Math.max(myTags.length, theirTags.length)) * 100);
-  // Psychological padding: keep scores between 60% and 99% for dopamine
   return Math.min(Math.max(baseScore + 50, 60), 99);
 };
 
-// 3. Reverse Geocoding
+// 3. Reverse Geocoding (With 403 Fallback)
 export const getCityFromCoordinates = async (lat, lng) => {
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+    if (!res.ok) throw new Error("API Blocked");
     const data = await res.json();
-    return data.address.city || data.address.town || data.address.village || "My Zone";
-  } catch (e) { return "Live Zone"; }
+    return data.address.city || data.address.town || data.address.village || "Local Zone";
+  } catch (e) { 
+    // ✅ This prevents the location spinner from staying stuck forever
+    console.warn("Location service unavailable, using default.");
+    return "Dehradun"; 
+  }
 };
 
 // 4. Haptic Feedback Engine
