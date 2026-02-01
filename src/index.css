@@ -1,6 +1,23 @@
 @import "tailwindcss";
 
+/* --- 🚀 MOBILE SCROLL FIX START --- */
+html, body {
+  background-color: #080808; /* Matches your App background */
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  
+  /* Stops the "Rubber Band" bounce effect on iPhone/Android */
+  overscroll-behavior-y: none; 
+}
 
+#root {
+  height: 100%;
+  width: 100%;
+  background-color: #080808;
+}
+/* --- 🚀 MOBILE SCROLL FIX END --- */
 
 @layer utilities {
   /* Radar Pulse Animation */

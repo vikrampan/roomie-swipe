@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap, ShieldCheck, MessageCircle, ArrowRight, CheckCircle, Heart, XCircle, BrainCircuit, MapPin, Sparkles } from 'lucide-react';
+import { 
+  Zap, ShieldCheck, MessageCircle, ArrowRight, CheckCircle, Heart, 
+  XCircle, BrainCircuit, MapPin, Sparkles 
+} from 'lucide-react';
 
+// --- CONSTANTS ---
 const SUCCESS_NAMES = [
   "Sakshi", "Rohit", "Aarav", "Priya", "Vikram", "Neha", "Rohan", "Ananya", "Kabir", "Meera", 
   "Aditya", "Diya", "Arjun", "Sanya", "Karan", "Ishaan", "Riya", "Varun", "Pooja", "Nikhil"
@@ -154,7 +158,11 @@ export const LandingPage = ({ onLogin }) => {
                             transition={{ duration: 4, repeat: Infinity, times: [0, 0.2, 0.21, 0.4, 1] }}
                             className="relative w-full h-[70%] bg-gradient-to-b from-slate-700 to-slate-800 rounded-3xl overflow-hidden border border-white/10"
                         >
-                            <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=500&q=60" className="w-full h-full object-cover" />
+                            <img 
+                                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=500&q=60" 
+                                alt="Profile"
+                                className="w-full h-full object-cover" 
+                            />
                             
                             {/* Detailed Card Info */}
                             <div className="absolute bottom-0 w-full p-5 bg-gradient-to-t from-black via-black/80 to-transparent text-left">
