@@ -51,17 +51,30 @@ export const LandingPage = ({ onLogin }) => {
   return (
     <div className="min-h-screen bg-[#050505] text-white overflow-hidden font-sans selection:bg-pink-500/30 flex flex-col">
       
-      {/* 1. Animated Background Blobs */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
+      {/* 🚀 PERFORMANCE OPTIMIZATION: 
+          Removed heavy 'rotate' and 'scale' animations. 
+          Using simple 'x' movement and 'opacity' allows the GPU to render this cheaply, 
+          ensuring scrolling is 60fps smooth.
+      */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+        {/* Blob 1: Pink */}
         <motion.div 
-          animate={{ scale: [1, 1.2, 1], rotate: [0, 90, 0] }}
-          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-          className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] bg-pink-600/20 rounded-full blur-[120px]" 
+          animate={{ 
+            x: [0, 30, 0], 
+            opacity: [0.3, 0.5, 0.3] 
+          }}
+          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] bg-pink-600/20 rounded-full blur-[100px]" 
         />
+        
+        {/* Blob 2: Indigo */}
         <motion.div 
-          animate={{ scale: [1, 1.3, 1], rotate: [0, -60, 0] }}
-          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-          className="absolute top-[20%] -right-[20%] w-[60vw] h-[60vw] bg-indigo-600/10 rounded-full blur-[120px]" 
+          animate={{ 
+            x: [0, -30, 0], 
+            opacity: [0.3, 0.5, 0.3] 
+          }}
+          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+          className="absolute top-[20%] -right-[20%] w-[60vw] h-[60vw] bg-indigo-600/10 rounded-full blur-[100px]" 
         />
       </div>
 
