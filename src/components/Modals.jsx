@@ -2,13 +2,14 @@ import React, { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   X, LogOut, Trash2, Edit3, ShieldAlert, MessageCircle, Heart, Zap, Sparkles, 
-  MapPin, Moon, Sun, Coffee, Music, Volume2, Users, Clock, Cigarette, Wine
+  MapPin, Moon, Sun, Users, Volume2, ShieldCheck, Mail, Building, Calendar 
 } from 'lucide-react';
 import { auth } from '../firebase';
 import confetti from 'canvas-confetti';
 
 // --- 1. MATCH POPUP (Celebration) ---
 export const MatchPopup = ({ person, onClose, onChat }) => {
+  // Trigger Confetti on Mount
   useEffect(() => {
     const duration = 2000;
     const end = Date.now() + duration;
@@ -21,12 +22,17 @@ export const MatchPopup = ({ person, onClose, onChat }) => {
 
   return (
     <motion.div 
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }} 
       className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6"
     >
       <div className="w-full max-w-sm flex flex-col items-center text-center relative">
+        
+        {/* Animated Text */}
         <motion.div 
-          initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} 
+          initial={{ scale: 0, rotate: -20 }} 
+          animate={{ scale: 1, rotate: 0 }} 
           transition={{ type: "spring", stiffness: 200, damping: 15 }}
           className="relative mb-12"
         >
@@ -36,6 +42,7 @@ export const MatchPopup = ({ person, onClose, onChat }) => {
            <Sparkles className="absolute -top-8 -right-8 text-yellow-400 animate-pulse" size={48} fill="currentColor"/>
         </motion.div>
 
+        {/* Profile Pictures overlapping */}
         <div className="flex items-center justify-center mb-12 relative h-32 w-full">
             <motion.img 
               initial={{ x: -100, opacity: 0 }} animate={{ x: -20, opacity: 1 }} 
@@ -59,10 +66,17 @@ export const MatchPopup = ({ person, onClose, onChat }) => {
           You and <span className="text-white font-bold">{person.name}</span> vibe with each other!
         </p>
 
-        <button onClick={onChat} className="w-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-black py-4 rounded-2xl text-lg flex items-center justify-center gap-2 shadow-lg hover:scale-105 transition-transform">
+        {/* Action Buttons */}
+        <button 
+          onClick={onChat} 
+          className="w-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-black py-4 rounded-2xl text-lg flex items-center justify-center gap-2 shadow-lg hover:scale-105 transition-transform"
+        >
             <MessageCircle fill="currentColor" size={20}/> SAY HELLO
         </button>
-        <button onClick={onClose} className="mt-4 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-white transition-colors">
+        <button 
+          onClick={onClose} 
+          className="mt-4 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-white transition-colors"
+        >
             Keep Swiping
         </button>
       </div>
@@ -70,11 +84,14 @@ export const MatchPopup = ({ person, onClose, onChat }) => {
   );
 };
 
-// --- 2. DETAIL MODAL (Fixed Missing Details) ---
+// --- 2. DETAIL MODAL (Full Profile View) ---
 export const DetailModal = ({ person, onClose }) => {
-  const mainImage = (person.images && person.images.length > 0) ? person.images[0] : person.img;
+  // Logic: Use Room Photo as cover if Host, otherwise use Profile Photo
+  const coverImage = (person.userRole === 'host' && person.roomImages?.length > 0) 
+    ? person.roomImages[0] 
+    : (person.images?.[0] || person.img);
 
-  // Helper for rows
+  // Helper Component for Data Rows
   const DetailRow = ({ icon, label, value }) => (
     <div className="flex items-center justify-between border-b border-white/5 pb-3 last:border-0 last:pb-0">
         <span className="flex items-center gap-3 text-sm font-medium text-slate-400">
@@ -86,13 +103,17 @@ export const DetailModal = ({ person, onClose }) => {
 
   return (
     <motion.div 
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }} 
       className="fixed inset-0 z-[100] bg-black/95 flex items-end sm:items-center justify-center"
     >
       <div className="absolute inset-0" onClick={onClose} />
 
       <motion.div 
-        initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} 
+        initial={{ y: "100%" }} 
+        animate={{ y: 0 }} 
+        exit={{ y: "100%" }} 
         transition={{ type: "spring", damping: 25, stiffness: 200 }}
         className="w-full h-[90vh] sm:h-[85vh] sm:max-w-md bg-[#0a0a0a] sm:rounded-[3rem] rounded-t-[3rem] overflow-hidden relative shadow-2xl flex flex-col"
       >
@@ -100,44 +121,78 @@ export const DetailModal = ({ person, onClose }) => {
             <X size={20}/>
         </button>
 
-        <div className="flex-1 overflow-y-auto scrollbar-hide relative">
+        <div className="flex-1 overflow-y-auto scrollbar-hide relative bg-[#0a0a0a]">
             
-            {/* HERO IMAGE */}
+            {/* HERO COVER IMAGE */}
             <div className="h-[50vh] w-full relative">
-                <img src={mainImage} className="w-full h-full object-cover" />
+                <img src={coverImage} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent"/>
                 <div className="absolute bottom-0 left-0 p-8 w-full">
-                    <h1 className="text-5xl font-black italic text-white tracking-tighter drop-shadow-lg mb-2">
-                        {person.name} <span className="text-3xl not-italic font-medium text-slate-400">{person.age}</span>
+                    <h1 className="text-4xl font-black italic text-white tracking-tighter drop-shadow-lg mb-2">
+                        {person.name} <span className="text-2xl not-italic font-medium text-slate-400">{person.age}</span>
                     </h1>
+                    
+                    {/* VERIFICATION BADGES */}
+                    <div className="flex items-center gap-2 mb-2">
+                        {person.isPhoneVerified && (
+                            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-md text-[10px] font-bold uppercase flex items-center gap-1">
+                                <ShieldCheck size={10}/> Phone Verified
+                            </span>
+                        )}
+                        <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded-md text-[10px] font-bold uppercase flex items-center gap-1">
+                            <Mail size={10}/> Email Verified
+                        </span>
+                    </div>
+
                     <div className="flex items-center gap-2 text-sm font-bold text-white/80 uppercase tracking-wide">
-                        <MapPin size={14} className="text-pink-500"/> {person.city} • {person.distance || '2'} km away
+                        <MapPin size={14} className="text-pink-500"/> {person.city} • {person.distance || '2'} km
                     </div>
                 </div>
             </div>
 
-            {/* CONTENT */}
-            <div className="px-8 pb-12 space-y-8 bg-[#0a0a0a]">
+            {/* CONTENT BODY */}
+            <div className="px-8 pb-12 space-y-8">
                 
-                {/* Stats */}
+                {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white/5 border border-white/5 p-4 rounded-3xl">
-                        <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Budget</p>
+                        <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Rent</p>
                         <p className="text-2xl font-black text-white">₹{Number(person.rent).toLocaleString()}</p>
                     </div>
                     <div className="bg-white/5 border border-white/5 p-4 rounded-3xl">
-                        <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Work</p>
-                        <p className="text-lg font-bold text-white truncate">{person.occupation || 'Student'}</p>
+                        <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">
+                            {person.userRole === 'host' ? 'Furnishing' : 'Work'}
+                        </p>
+                        <p className="text-sm font-bold text-white truncate">
+                            {person.userRole === 'host' ? person.furnishing : (person.occupation || 'Student')}
+                        </p>
                     </div>
                 </div>
 
-                {/* About */}
+                {/* Host Specific Details (Only visible if Host) */}
+                {person.userRole === 'host' && (
+                    <div className="bg-purple-900/10 border border-purple-500/20 p-4 rounded-3xl">
+                        <h3 className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                            <Building size={12}/> Property Info
+                        </h3>
+                        <div className="space-y-2 text-sm">
+                            <p className="flex justify-between text-slate-300">
+                                <span>Society:</span> <span className="text-white font-bold">{person.societyName || 'Not Listed'}</span>
+                            </p>
+                            <p className="flex justify-between text-slate-300">
+                                <span>Available:</span> <span className="text-white font-bold">{person.availableFrom || 'Immediately'}</span>
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Bio Section */}
                 <div>
-                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">About Me</h3>
+                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">About</h3>
                     <p className="text-slate-200 text-lg leading-relaxed font-medium">"{person.bio || "Just a vibe waiting to happen."}"</p>
                 </div>
 
-                {/* Tags */}
+                {/* Vibe Tags */}
                 <div>
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">My Vibe</h3>
                     <div className="flex flex-wrap gap-2">
@@ -146,11 +201,10 @@ export const DetailModal = ({ person, onClose }) => {
                                 <Zap size={12} className="text-yellow-400"/> {tag}
                             </span>
                         ))}
-                        {(!person.tags || person.tags.length === 0) && <span className="text-slate-500 text-sm italic">No vibe tags yet.</span>}
                     </div>
                 </div>
 
-                {/* LIFESTYLE (The Missing Part) */}
+                {/* Lifestyle Details */}
                 <div className="bg-white/5 rounded-3xl p-6 border border-white/5">
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">Lifestyle Check</h3>
                     <div className="space-y-4">
@@ -162,14 +216,12 @@ export const DetailModal = ({ person, onClose }) => {
                     </div>
                 </div>
 
-                {/* Extra Photos */}
-                {person.images && person.images.length > 1 && (
-                    <div className="grid grid-cols-2 gap-3 pt-4">
-                        {person.images.slice(1).map((img, i) => (
-                            <img key={i} src={img} className="w-full h-48 object-cover rounded-3xl border border-white/5" />
-                        ))}
-                    </div>
-                )}
+                {/* Photo Gallery (Merges Room & Personal Photos) */}
+                <div className="grid grid-cols-2 gap-3 pt-4">
+                    {[...(person.roomImages || []), ...(person.images || [])].map((img, i) => (
+                        <img key={i} src={img} className="w-full h-48 object-cover rounded-3xl border border-white/5 bg-white/5" alt="Gallery" />
+                    ))}
+                </div>
             </div>
         </div>
       </motion.div>
@@ -177,12 +229,19 @@ export const DetailModal = ({ person, onClose }) => {
   );
 };
 
-// --- 3. PROFILE SETTINGS ---
+// --- 3. PROFILE SETTINGS MODAL ---
 export const ProfileModal = ({ user, myProfile, onClose, onDelete, onEdit }) => {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4">
+    <motion.div 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }} 
+      className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4"
+    >
       <motion.div 
-        initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} 
+        initial={{ y: "100%" }} 
+        animate={{ y: 0 }} 
+        exit={{ y: "100%" }} 
         className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[3rem] overflow-hidden shadow-2xl"
       >
         <div className="p-8 pt-10 text-center">
@@ -197,19 +256,33 @@ export const ProfileModal = ({ user, myProfile, onClose, onDelete, onEdit }) => 
             <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">{myProfile?.city || "Location Pending"}</p>
 
             <div className="space-y-3">
-                <button onClick={() => onEdit(myProfile)} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-colors">
+                <button 
+                  onClick={() => onEdit(myProfile)} 
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-colors"
+                >
                     <Edit3 size={18}/> Edit Profile
                 </button>
                 <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => auth.signOut()} className="bg-slate-900 border border-white/5 text-slate-400 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors">
+                    <button 
+                      onClick={() => auth.signOut()} 
+                      className="bg-slate-900 border border-white/5 text-slate-400 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
+                    >
                         <LogOut size={18}/> Logout
                     </button>
-                    <button onClick={() => onDelete(myProfile?.id)} className="bg-red-500/10 border border-red-500/20 text-red-500 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors">
+                    <button 
+                      onClick={() => onDelete(myProfile?.id)} 
+                      className="bg-red-500/10 border border-red-500/20 text-red-500 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors"
+                    >
                         <Trash2 size={18}/> Delete
                     </button>
                 </div>
             </div>
-            <button onClick={onClose} className="mt-8 text-slate-600 font-bold text-xs uppercase tracking-widest hover:text-white">Close</button>
+            <button 
+              onClick={onClose} 
+              className="mt-8 text-slate-600 font-bold text-xs uppercase tracking-widest hover:text-white"
+            >
+              Close
+            </button>
         </div>
       </motion.div>
     </motion.div>
@@ -220,19 +293,41 @@ export const ProfileModal = ({ user, myProfile, onClose, onDelete, onEdit }) => 
 export const ReportModal = ({ person, onConfirm, onCancel }) => {
   const reasons = ["Fake Profile", "Scam / Spam", "Inappropriate", "Harassment"];
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[80] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6">
-      <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} className="w-full max-w-xs bg-[#111] rounded-[2.5rem] p-6 border border-red-900/30">
+    <motion.div 
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }} 
+      className="fixed inset-0 z-[80] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6"
+    >
+      <motion.div 
+        initial={{ scale: 0.9 }} 
+        animate={{ scale: 1 }} 
+        className="w-full max-w-xs bg-[#111] rounded-[2.5rem] p-6 border border-red-900/30"
+      >
         <div className="flex flex-col items-center text-center mb-6">
-            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4"><ShieldAlert className="text-red-500" size={32} /></div>
+            <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-4">
+              <ShieldAlert className="text-red-500" size={32} />
+            </div>
             <h2 className="text-xl font-bold text-white">Report User</h2>
             <p className="text-slate-500 text-xs mt-2">Help us keep the community safe.</p>
         </div>
         <div className="space-y-2 mb-6">
             {reasons.map(r => (
-                <button key={r} onClick={() => onConfirm(r)} className="w-full py-3 px-4 bg-white/5 hover:bg-red-500/20 border border-white/5 rounded-xl text-left text-sm font-medium text-slate-300 hover:text-red-400 transition-all">{r}</button>
+                <button 
+                  key={r} 
+                  onClick={() => onConfirm(r)} 
+                  className="w-full py-3 px-4 bg-white/5 hover:bg-red-500/20 border border-white/5 rounded-xl text-left text-sm font-medium text-slate-300 hover:text-red-400 transition-all"
+                >
+                  {r}
+                </button>
             ))}
         </div>
-        <button onClick={onCancel} className="w-full py-3 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-white">Cancel</button>
+        <button 
+          onClick={onCancel} 
+          className="w-full py-3 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-white"
+        >
+          Cancel
+        </button>
       </motion.div>
     </motion.div>
   );

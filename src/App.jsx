@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { auth, db, provider } from './firebase';
-import { signInWithPopup } from 'firebase/auth';
-import { doc, onSnapshot } from 'firebase/firestore'; 
+import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
+import { doc, onSnapshot, getDoc } from 'firebase/firestore'; 
 import { LandingPage } from './components/LandingPage';
 import { triggerHaptic } from './services/utils';
 import { swipeRight, swipeLeft } from './services/interactionService';
-import { getNearbyUsers } from './services/feedService'; 
+import { getNearbyUsers, injectSmartAds } from './services/feedService';
 import { fetchMatches } from './services/chatService'; 
 import { MessageCircle, User, Loader2, Minus, Plus, MapPin, Sparkles } from 'lucide-react';
 
-// --- LAZY LOAD COMPONENTS (Performance Fix) ---
-// These files will NOT download until the user logs in, keeping the landing page fast.
+// --- LAZY LOAD COMPONENTS ---
 const Card = lazy(() => import('./components/Cards').then(m => ({ default: m.Card })));
 const ChatModal = lazy(() => import('./components/Chat').then(m => ({ default: m.ChatModal })));
 const CreateProfileForm = lazy(() => import('./components/Forms').then(m => ({ default: m.CreateProfileForm })));
@@ -19,7 +18,7 @@ const MatchPopup = lazy(() => import('./components/Modals').then(m => ({ default
 const DetailModal = lazy(() => import('./components/Modals').then(m => ({ default: m.DetailModal })));
 const ReportModal = lazy(() => import('./components/Modals').then(m => ({ default: m.ReportModal })));
 
-// --- CUSTOM DOODLE ANIMATION ---
+// --- ANIMATION ---
 const DoodleSearchAnim = () => {
   return (
     <div className="relative w-64 h-64 mx-auto mb-2 flex items-center justify-center">
@@ -42,8 +41,6 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [myProfile, setMyProfile] = useState(null);
   const [people, setPeople] = useState([]);
-  
-  // Initialize loading as TRUE to prevent Landing Page flash
   const [loading, setLoading] = useState(true); 
   
   const [activeTab, setActiveTab] = useState('swipe');
@@ -57,92 +54,116 @@ export default function App() {
   const swipedIdsRef = useRef(new Set()); 
   const initialFetchDone = useRef(false);
 
-  const isProfileComplete = myProfile && myProfile.name && myProfile.images && myProfile.images.length > 0;
+  // Helper: Check if profile is TRULY complete (Checking Firestore data, not Auth data)
+  const isProfileComplete = myProfile && myProfile.name && (myProfile.images?.length > 0 || myProfile.roomImages?.length > 0);
 
-  // --- 1. AUTH LISTENER (The Gatekeeper) ---
+  // --- 1. CRITICAL FIX: DATA PERSISTENCE ---
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(currentUser => {
-      setUser(currentUser);
-      
-      // If NO user is found, we are done loading. Show Landing Page.
-      // If User IS found, keep loading(true) until we fetch the profile data below.
-      if (!currentUser) {
-        setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        try {
+            // 🚀 STEP 1: Check Database FIRST
+            const docRef = doc(db, "users", currentUser.uid);
+            const docSnap = await getDoc(docRef);
+
+            if (docSnap.exists()) {
+                // ✅ EXISTING USER ("Priya"): Use Database Data
+                const dbData = docSnap.data();
+                
+                setMyProfile({
+                    id: currentUser.uid,
+                    ...dbData, // This overrides Google's "Vikram" with DB's "Priya"
+                    email: currentUser.email, 
+                    // Use Firestore photo if available, else Auth photo
+                    photoURL: dbData.images?.[0] || currentUser.photoURL 
+                });
+            } else {
+                // ❌ NEW USER: Name starts empty so they MUST type it
+                setMyProfile({
+                    id: currentUser.uid,
+                    name: "", // FORCE EMPTY NAME
+                    email: currentUser.email,
+                    photoURL: currentUser.photoURL,
+                    isNewUser: true
+                });
+            }
+        } catch (error) {
+            console.error("Error fetching profile:", error);
+        }
+        setUser(currentUser); 
+      } else {
+        setUser(null);
+        setMyProfile(null);
       }
+      setLoading(false); 
     });
-    return () => unsub();
+
+    return () => unsubscribe();
   }, []);
 
-  // --- 2. PROFILE LISTENER (Data Fetcher) ---
+  // --- 2. REAL-TIME SYNC (Keeps 'Priya' updated if edited) ---
   useEffect(() => {
-    if (!user) return; // Wait for user to be authenticated
+    if (!user) return; 
 
     const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
-      // Data received (or doesn't exist). Stop Loading.
-      setLoading(false);
-
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setMyProfile({ id: docSnap.id, ...data });
+        // Merge carefully: Database data overrides current state
+        setMyProfile(prev => ({ 
+            ...prev, 
+            ...data,
+            id: user.uid 
+        }));
         
-        // Redirect to profile creation if incomplete
-        if (!data.name || !data.images || data.images.length === 0) {
+        // Only redirect to setup if vital data is MISSING
+        if (!data.name || (!data.images?.length && !data.roomImages?.length)) {
             setActiveTab('profile'); 
         }
-      } else {
-        setMyProfile(null);
-        setActiveTab('profile'); 
       }
-    }, (error) => {
-        console.error("Profile Error:", error);
-        setLoading(false); // Stop loading even on error
     });
     
     return () => unsub();
   }, [user]);
 
-  // --- 3. NOTIFICATION POLLER (Cost Optimized) ---
+  // --- 3. NOTIFICATION POLLER ---
   useEffect(() => {
     if (!user) return;
     
-    // 🚀 COST FIX: Replaced real-time listener with a Polling mechanism
-    // This saves massive reads. Instead of keeping a connection open,
-    // we check for red dots once on load, and then every 2 minutes.
     const checkUnread = async () => {
-        const matches = await fetchMatches(user.uid);
-        const hasUnread = matches.some(m => m.hasNotification);
-        setHasUnreadMessages(hasUnread);
+        try {
+            const matches = await fetchMatches(user.uid);
+            const hasUnread = matches.some(m => m.hasNotification);
+            setHasUnreadMessages(hasUnread);
+        } catch (e) { console.warn(e); }
     };
-
-    checkUnread(); // Check immediately
-    
-    const interval = setInterval(checkUnread, 120000); // Check every 2 mins
+    checkUnread(); 
+    const interval = setInterval(checkUnread, 120000);
     return () => clearInterval(interval);
   }, [user]);
 
-  // --- 4. FEED FETCHING ---
+  // --- 4. FEED LOGIC (With Safety Checks) ---
   useEffect(() => {
     const fetchFeed = async () => {
-      // Don't fetch if loading, no profile, or incomplete
+      // Don't fetch if profile is broken or location missing
       if (loading || !user || !isProfileComplete || !myProfile?.lat || activeTab === 'profile') {
         return;
       }
 
+      // Fetch only if feed is running low
       if (people.length < 2) { 
-        // Only set localized loading indicator if needed, not full screen
         try {
           const nearby = await getNearbyUsers(user, {lat: myProfile.lat, lng: myProfile.lng}, searchRadius, {}, []);
           
-          setPeople(prev => {
-             const existingIds = new Set(prev.map(p => p.id));
-             
-             // Filter duplicates and locally swiped users
-             const newPeople = nearby.filter(p => {
-               return !existingIds.has(p.id) && !swipedIdsRef.current.has(p.id);
-             });
-
-             return [...prev, ...newPeople];
+          const uniquePeople = nearby.filter(p => {
+             const isDuplicate = people.some(existing => existing.id === p.id);
+             return !isDuplicate && !swipedIdsRef.current.has(p.id);
           });
+
+          const feedWithAds = injectSmartAds(uniquePeople, myProfile);
+
+          if (feedWithAds.length > 0) {
+              setPeople(prev => [...prev, ...feedWithAds]);
+          }
         } catch (e) {
           console.error("Feed Error", e);
         }
@@ -153,20 +174,15 @@ export default function App() {
   }, [user, activeTab, people.length, searchRadius, isProfileComplete, loading, myProfile]);
 
   // --- ACTIONS ---
-  const handleIncreaseRadius = () => {
-    setSearchRadius(prev => prev >= 500 ? 500 : (prev >= 200 ? 500 : (prev >= 100 ? 200 : 100)));
-  };
-
-  const handleDecreaseRadius = () => {
-    setSearchRadius(prev => prev <= 50 ? 50 : (prev <= 100 ? 50 : (prev <= 200 ? 100 : 200)));
-  };
+  const handleIncreaseRadius = () => setSearchRadius(prev => prev >= 500 ? 500 : (prev >= 200 ? 500 : (prev >= 100 ? 200 : 100)));
+  const handleDecreaseRadius = () => setSearchRadius(prev => prev <= 50 ? 50 : (prev <= 100 ? 50 : (prev <= 200 ? 100 : 200)));
 
   const onSwipe = async (direction, item) => {
-    if (item.isAd) return;
-    
     swipedIdsRef.current.add(item.id);
-    triggerHaptic(direction === 'right' ? 'success' : 'light');
     setPeople(prev => prev.filter(p => p.id !== item.id));
+    triggerHaptic(direction === 'right' ? 'success' : 'light');
+
+    if (item.isAd) return;
 
     try {
       if (direction === 'right') {
@@ -175,9 +191,7 @@ export default function App() {
       } else {
         await swipeLeft(user.uid, item.id);
       }
-    } catch (error) {
-      console.error("Swipe interaction failed:", error);
-    }
+    } catch (error) { console.error(error); }
   };
 
   const handleCardLeftScreen = (id) => {
@@ -188,41 +202,37 @@ export default function App() {
     try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
   };
 
-  // --- RENDER LOGIC ---
-
-  // 1. Show Spinner while determining Auth Status or Fetching Profile
+  // --- RENDER ---
   if (loading) return (
     <div className="h-screen bg-[#050505] flex items-center justify-center relative overflow-hidden">
       <div className="flex flex-col items-center gap-4 z-10">
         <Loader2 className="text-pink-500 animate-spin" size={48} />
-        <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.2em] animate-pulse">Initializing Vibe...</p>
+        <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.2em] animate-pulse">Retrieving Profile...</p>
       </div>
     </div>
   );
 
-  // 2. Not Logged In -> Show Landing Page
   if (!user) return <LandingPage onLogin={handleLogin} />;
 
-  // 3. Logged In -> Show Main App
   return (
     <div className="h-screen bg-[#080808] text-white overflow-hidden flex flex-col relative font-sans">
       
-      {/* Background */}
+      {/* Dynamic Background */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         <motion.div animate={{ x: [0, 100, 0], y: [0, -50, 0], scale: [1, 1.2, 1] }} transition={{ duration: 15, repeat: Infinity, ease: "linear" }} className="absolute -top-[10%] -right-[10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px]" />
         <motion.div animate={{ x: [0, -100, 0], y: [0, 100, 0], scale: [1, 1.4, 1] }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute top-[20%] -left-[20%] w-[500px] h-[500px] bg-pink-600/10 rounded-full blur-[100px]" />
       </div>
 
-      {/* Header */}
+      {/* Navbar */}
       <header className="px-6 py-5 z-50 flex justify-between items-center relative">
         <div className="absolute inset-0 bg-gradient-to-b from-black/90 via-black/50 to-transparent pointer-events-none"></div>
-        
         <div className="flex items-center gap-2 z-50">
             <button onClick={() => setActiveTab('profile')} className="relative group p-2 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all active:scale-95">
-            {myProfile?.img ? ( <img src={myProfile.img} className="w-8 h-8 rounded-xl object-cover opacity-90 group-hover:opacity-100 transition-opacity" /> ) : ( <User size={24} className="text-slate-300" /> )}
+                {myProfile?.images?.[0] || myProfile?.img ? ( 
+                    <img src={myProfile.images?.[0] || myProfile.img} className="w-8 h-8 rounded-xl object-cover opacity-90 group-hover:opacity-100 transition-opacity" /> 
+                ) : ( <User size={24} className="text-slate-300" /> )}
             </button>
         </div>
-
         <div className="flex flex-col items-center z-50 pt-2">
             <h1 className="text-3xl font-black italic tracking-tighter flex items-center gap-1 drop-shadow-2xl">
               ROOMIE <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500">SWIPE</span>
@@ -234,20 +244,17 @@ export default function App() {
               </span>
             )}
         </div>
-        
         <button onClick={() => setActiveTab('chat')} className="relative p-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all active:scale-95 z-50">
           <MessageCircle size={24} className="text-slate-300" />
-          {hasUnreadMessages && (
-            <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-pink-500 border-2 border-[#080808] rounded-full animate-pulse"></span>
-          )}
+          {hasUnreadMessages && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-pink-500 border-2 border-[#080808] rounded-full animate-pulse"></span>}
         </button>
       </header>
 
-      {/* Main Content */}
+      {/* Main Swipe Area */}
       <div className="flex-1 relative flex justify-center items-center p-4 z-10">
-        
         <Suspense fallback={<div className="flex justify-center"><Loader2 className="animate-spin text-pink-500"/></div>}>
           {!isProfileComplete ? (
+             // Onboarding Screen
              <div className="flex flex-col items-center justify-center text-center max-w-sm">
                 <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6 animate-pulse">
                     <User size={48} className="text-slate-500"/>
@@ -264,18 +271,11 @@ export default function App() {
                 </button>
              </div>
           ) : (
+             // Swipe Stack
              <>
               <AnimatePresence>
                 {people.map((person) => (
-                  <Card 
-                    key={person.id} 
-                    person={person} 
-                    myProfile={myProfile}
-                    onSwipe={onSwipe} 
-                    onCardLeftScreen={handleCardLeftScreen}
-                    onInfo={setSelectedPerson} 
-                    onReport={setReportingPerson}
-                  />
+                  <Card key={person.id} person={person} myProfile={myProfile} onSwipe={onSwipe} onCardLeftScreen={handleCardLeftScreen} onInfo={setSelectedPerson} onReport={setReportingPerson} />
                 ))}
               </AnimatePresence>
 
@@ -303,9 +303,11 @@ export default function App() {
         </Suspense>
       </div>
 
-      {/* Modals & Forms */}
+      {/* Modals Layer */}
       <AnimatePresence>
         <Suspense fallback={<div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center"><Loader2 className="animate-spin text-pink-500" size={32}/></div>}>
+          
+          {/* Profile Form (Edit/Create) */}
           {(activeTab === 'profile' || showProfileForm) && (
              <CreateProfileForm 
                user={user} 
@@ -322,13 +324,16 @@ export default function App() {
              />
           )}
           
+          {/* Chat List */}
           {activeTab === 'chat' && <ChatModal user={user} onClose={() => setActiveTab('swipe')} />}
           
+          {/* Detail View */}
           {selectedPerson && <DetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />}
           
+          {/* Report Dialog */}
           {reportingPerson && <ReportModal person={reportingPerson} onConfirm={() => setReportingPerson(null)} onCancel={() => setReportingPerson(null)} />}
           
-          {/* MATCH POPUP - Connects to Chat */}
+          {/* Match Celebration */}
           {matchData && (
             <MatchPopup 
               person={matchData} 

@@ -1,35 +1,76 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import TinderCard from 'react-tinder-card';
-import { MapPin, Sparkles, ChevronUp, IndianRupee } from 'lucide-react';
+import { MapPin, Sparkles, ChevronUp, IndianRupee, ShieldCheck, Mail } from 'lucide-react';
 import { triggerHaptic, calculateCompatibility } from '../services/utils';
 
 export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [swipeState, setSwipeState] = useState(null); // 'like', 'nope', or null
+  
+  // Refs for "Smart Tap" detection
+  const touchStart = useRef({ x: 0, y: 0, time: 0 });
 
-  // Ensure images exist, otherwise fallback
-  const images = (person.images && person.images.length > 0) 
-    ? person.images 
-    : [person.img || 'https://via.placeholder.com/400x600?text=No+Image'];
+  // --- 1. IMAGE LOGIC (MERGE ROOM & PERSONAL) ---
+  const images = useMemo(() => {
+    let allImages = [];
+    
+    // If they are a Host (have a room), show Room Photos first
+    if (person.userRole === 'host' && person.roomImages?.length > 0) {
+        allImages = [...person.roomImages, ...(person.images || [])];
+    } else {
+        // Hunters only show personal photos
+        allImages = person.images || [];
+    }
+    
+    // Fallback if no images exist
+    return allImages.length > 0 
+      ? allImages 
+      : [person.img || 'https://via.placeholder.com/400x600?text=No+Image'];
+  }, [person]);
 
-  const vibeScore = React.useMemo(() => calculateCompatibility(myProfile?.tags, person.tags), [myProfile, person]);
+  // Calculate Vibe Match Score
+  const vibeScore = useMemo(() => calculateCompatibility(myProfile?.tags, person.tags), [myProfile, person]);
 
-  // Handle tapping left/right sides of the image
-  const handleTap = (e) => {
-    // If clicking the info area at the bottom, don't change photos
+  // --- 2. SMART TAP LOGIC (Tap vs Swipe) ---
+  const handleTouchStart = (e) => {
+    touchStart.current = { 
+        x: e.changedTouches[0].clientX, 
+        y: e.changedTouches[0].clientY,
+        time: Date.now() 
+    };
+  };
+
+  const handleTouchEnd = (e) => {
+    // Ignore taps on the bottom info panel (let them open profile)
     if (e.target.closest('.info-trigger')) return;
 
-    const cardWidth = e.currentTarget.offsetWidth;
-    const tapX = e.nativeEvent.offsetX;
-    
-    if (tapX > cardWidth / 2) {
+    const touchEnd = { 
+        x: e.changedTouches[0].clientX, 
+        y: e.changedTouches[0].clientY,
+        time: Date.now()
+    };
+
+    // Distinguish Tap from Swipe
+    const dist = Math.sqrt(Math.pow(touchEnd.x - touchStart.current.x, 2) + Math.pow(touchEnd.y - touchStart.current.y, 2));
+    const duration = touchEnd.time - touchStart.current.time;
+
+    // If movement < 10px and duration < 300ms, it's a TAP
+    if (dist < 10 && duration < 300) {
+        handleImageNavigation(e, touchEnd.x);
+    }
+  };
+
+  const handleImageNavigation = (e, clickX) => {
+    const card = e.currentTarget.getBoundingClientRect();
+    const relativeX = clickX - card.left;
+
+    if (relativeX > card.width / 2) {
       // Tap Right -> Next Photo
       if (currentIndex < images.length - 1) {
         triggerHaptic('light');
         setCurrentIndex(prev => prev + 1);
       } else {
-        // Loop back to start (optional behavior)
-        setCurrentIndex(0);
+        setCurrentIndex(0); // Loop back
       }
     } else {
       // Tap Left -> Prev Photo
@@ -41,16 +82,15 @@ export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) =
   };
 
   return (
-    <div className="absolute w-full h-[640px] max-w-[400px] select-none perspective-1000">
+    <div className="absolute w-full h-[640px] max-w-[400px] select-none perspective-1000 flex justify-center items-center">
       <TinderCard
-        className="swipe absolute w-full h-full"
+        className="swipe absolute w-full h-full shadow-none"
         key={person.id}
         onSwipe={(dir) => onSwipe(dir, person)}
         onCardLeftScreen={() => onCardLeftScreen(person.id)}
         preventSwipe={['up', 'down']}
-        // PHYSICS TWEAKS:
-        swipeRequirementType="velocity" // Allows fast flicks to count
-        swipeThreshold={0.3} // Easier to swipe (lower number = easier)
+        swipeRequirementType="position"
+        swipeThreshold={100} // Require 100px move to trigger swipe
         onSwipeRequirementFulfilled={(dir) => {
             triggerHaptic('medium');
             setSwipeState(dir === 'right' ? 'like' : 'nope');
@@ -58,27 +98,24 @@ export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) =
         onSwipeRequirementUnfulfilled={() => setSwipeState(null)}
       >
         <div 
-          onClick={handleTap} 
-          className="relative w-full h-full bg-[#1a1a1a] rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/5 cursor-pointer"
+          className="relative w-full h-full bg-[#1a1a1a] rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/5"
+          style={{ touchAction: 'none' }} 
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
         >
-          
-          {/* --- IMAGE LAYER --- */}
+          {/* Main Image */}
           <img 
             src={images[currentIndex]} 
-            className="w-full h-full object-cover pointer-events-none"
+            className="w-full h-full object-cover pointer-events-none select-none"
             alt={person.name}
+            draggable="false"
           />
           
-          {/* Preload next image */}
-          {currentIndex < images.length - 1 && <img src={images[currentIndex+1]} className="hidden" alt="preload"/>}
-
-          {/* --- GRADIENTS --- */}
-          {/* Top gradient for visibility */}
+          {/* Gradients */}
           <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
-          {/* Bottom gradient for text */}
           <div className="absolute bottom-0 left-0 w-full h-3/5 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
 
-          {/* --- PROGRESS BARS --- */}
+          {/* Progress Bars */}
           <div className="absolute top-3 left-4 right-4 z-30 flex gap-1.5 pointer-events-none">
             {images.map((_, i) => (
               <div 
@@ -88,44 +125,76 @@ export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) =
             ))}
           </div>
 
-          {/* --- STAMPS (LIKE / NOPE) --- */}
-          {swipeState === 'like' && (
-             <div className="absolute top-10 left-6 -rotate-12 border-[5px] border-emerald-400 text-emerald-400 px-4 py-1 rounded-xl font-black text-4xl tracking-widest bg-black/20 backdrop-blur-sm z-50 animate-in zoom-in duration-200">
-                 YES
-             </div>
-          )}
-          {swipeState === 'nope' && (
-             <div className="absolute top-10 right-6 rotate-12 border-[5px] border-rose-500 text-rose-500 px-4 py-1 rounded-xl font-black text-4xl tracking-widest bg-black/20 backdrop-blur-sm z-50 animate-in zoom-in duration-200">
-                 NOPE
-             </div>
-          )}
+          {/* --- ROLE BADGE (Top Left) --- */}
+          <div className="absolute top-6 left-4 z-20 pointer-events-none">
+             {person.userRole === 'host' ? (
+                <div className="px-3 py-1 bg-purple-600/90 backdrop-blur-md rounded-full flex items-center gap-1.5 shadow-lg border border-purple-400/30">
+                    <span className="text-[10px] font-black text-white uppercase tracking-wider">Available Room</span>
+                </div>
+             ) : (
+                <div className="px-3 py-1 bg-emerald-500/90 backdrop-blur-md rounded-full flex items-center gap-1.5 shadow-lg border border-emerald-400/30">
+                    <span className="text-[10px] font-black text-white uppercase tracking-wider">Looking</span>
+                </div>
+             )}
+          </div>
 
-          {/* --- VIBE BADGE --- */}
-          <div className="absolute top-6 right-4 z-20">
+          {/* --- VIBE SCORE (Top Right) --- */}
+          <div className="absolute top-6 right-4 z-20 pointer-events-none">
              <div className="px-3 py-1 bg-black/40 backdrop-blur-md border border-white/10 rounded-full flex items-center gap-1.5 shadow-lg">
                 <Sparkles size={12} className="text-yellow-400 fill-yellow-400 animate-pulse"/>
                 <span className="text-[10px] font-bold text-white uppercase tracking-wider">{vibeScore}% Match</span>
              </div>
           </div>
 
-          {/* --- BOTTOM INFO PANEL (Clickable) --- */}
+          {/* --- STAMPS (YES / NOPE) --- */}
+          {swipeState === 'like' && (
+             <div className="absolute top-20 left-6 -rotate-12 border-[5px] border-emerald-400 text-emerald-400 px-4 py-1 rounded-xl font-black text-4xl tracking-widest bg-black/20 backdrop-blur-sm z-50 animate-in zoom-in duration-200">
+                 YES
+             </div>
+          )}
+          {swipeState === 'nope' && (
+             <div className="absolute top-20 right-6 rotate-12 border-[5px] border-rose-500 text-rose-500 px-4 py-1 rounded-xl font-black text-4xl tracking-widest bg-black/20 backdrop-blur-sm z-50 animate-in zoom-in duration-200">
+                 NOPE
+             </div>
+          )}
+
+          {/* --- BOTTOM INFO PANEL --- */}
           <div 
-            className="info-trigger absolute bottom-0 left-0 w-full p-5 pb-8 z-30 flex flex-col justify-end group/info"
-            onClick={(e) => { e.stopPropagation(); onInfo(person); }}
+            className="info-trigger absolute bottom-0 left-0 w-full p-5 pb-8 z-30 flex flex-col justify-end group/info cursor-pointer active:scale-95 transition-transform"
+            onClick={(e) => {
+                e.stopPropagation(); 
+                onInfo(person); 
+            }}
+            onTouchEnd={(e) => e.stopPropagation()}
           >
+             {/* Verified Badges Row */}
+             <div className="flex items-center gap-2 mb-2 pointer-events-none">
+                {person.isPhoneVerified && (
+                    <div className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/30 rounded-md flex items-center gap-1">
+                        <ShieldCheck size={10} className="text-emerald-400"/>
+                        <span className="text-[9px] font-bold text-emerald-400 uppercase">Phone Verified</span>
+                    </div>
+                )}
+                {/* Default Email Verified Badge */}
+                <div className="px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 rounded-md flex items-center gap-1">
+                    <Mail size={10} className="text-blue-400"/>
+                    <span className="text-[9px] font-bold text-blue-400 uppercase">Email Verified</span>
+                </div>
+             </div>
+
              {/* Name & Age */}
-             <div className="flex items-end gap-2 mb-2">
+             <div className="flex items-end gap-2 mb-1 pointer-events-none">
                 <h2 className="text-4xl font-black italic tracking-tighter text-white drop-shadow-md">
                     {person.name}
                 </h2>
                 <span className="text-2xl font-medium text-white/80 mb-1">{person.age}</span>
              </div>
 
-             {/* Details Row */}
-             <div className="flex items-center gap-3 text-xs font-bold text-white/80 uppercase tracking-wide mb-4">
+             {/* Distance & Rent */}
+             <div className="flex items-center gap-3 text-xs font-bold text-white/80 uppercase tracking-wide mb-4 pointer-events-none">
                 <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-md backdrop-blur-sm">
                     <MapPin size={12} className="text-pink-500"/> 
-                    {person.distance || '2'} km away
+                    {person.distance || '2'} km
                 </div>
                 <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-md backdrop-blur-sm">
                     <IndianRupee size={12} className="text-emerald-400"/> 
@@ -133,9 +202,9 @@ export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) =
                 </div>
              </div>
 
-             {/* "View Profile" Hint */}
-             <div className="w-full pt-3 border-t border-white/10 flex items-center justify-between text-white/60 group-hover/info:text-white transition-colors">
-                <span className="text-xs font-bold uppercase tracking-widest">View Profile</span>
+             {/* "View Details" Hint */}
+             <div className="w-full pt-3 border-t border-white/10 flex items-center justify-between text-white/60 group-hover/info:text-white transition-colors pointer-events-none">
+                <span className="text-xs font-bold uppercase tracking-widest">View Details</span>
                 <ChevronUp size={20} className="animate-bounce" />
              </div>
           </div>
