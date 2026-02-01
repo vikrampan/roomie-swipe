@@ -8,8 +8,9 @@ import {
 } from 'lucide-react';
 import { saveProfile, deleteMyProfile } from '../services/profileService';
 import { compressImage, getCityFromCoordinates } from '../services/utils';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { signOut, deleteUser } from 'firebase/auth';
-import { auth } from '../firebase';
+import { auth, storage } from '../firebase';
 
 // --- CONSTANTS ---
 const VIBE_TAGS = [
@@ -159,26 +160,68 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
     }
   };
 
+  // ✅ FIXED: Upload to Storage first, then save URLs to Firestore
   const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (formData.images.length + files.length > 5) {
       showToast("Max 5 photos allowed");
       return;
     }
+    
     setPhotoLoading(true);
+    
     try {
-      const compressedBatch = await Promise.all(files.map(f => compressImage(f)));
-      const newImages = [...formData.images, ...compressedBatch].slice(0, 5);
+      const uploadPromises = files.map(async (file, index) => {
+        try {
+          // Step 1: Compress image to Blob
+          const blob = await compressImage(file);
+          
+          // Step 2: Upload to Firebase Storage
+          const timestamp = Date.now();
+          const randomId = Math.random().toString(36).substring(2, 9);
+          const fileName = `photo_${timestamp}_${index}_${randomId}.jpg`;
+          const storageRef = ref(storage, `users/${user.uid}/${fileName}`);
+          
+          await uploadBytes(storageRef, blob);
+          
+          // Step 3: Get download URL
+          const downloadURL = await getDownloadURL(storageRef);
+          
+          return downloadURL;
+        } catch (error) {
+          console.error(`Failed to upload image ${index}:`, error);
+          return null;
+        }
+      });
       
+      // Wait for all uploads
+      const uploadedUrls = await Promise.all(uploadPromises);
+      
+      // Filter out failed uploads (null values)
+      const validUrls = uploadedUrls.filter(url => url !== null);
+      
+      if (validUrls.length === 0) {
+        showToast("Failed to upload images");
+        setPhotoLoading(false);
+        return;
+      }
+      
+      // Add new URLs to existing images
+      const newImages = [...formData.images, ...validUrls].slice(0, 5);
+      
+      // Update state
       setFormData(prev => ({ ...prev, images: newImages }));
       
-      // Save images immediately
+      // Save to Firestore (now with URLs, not Blobs)
       await saveProfile(user.uid, { ...formData, images: newImages }, [], newImages);
-      lastSavedRef.current = { ...formData, images: newImages }; 
-      showToast("Photo uploaded");
-    } catch (e) {
-      showToast("Error uploading image");
+      lastSavedRef.current = { ...formData, images: newImages };
+      
+      showToast(`${validUrls.length} photo(s) uploaded`);
+    } catch (error) {
+      console.error("Upload error:", error);
+      showToast("Error uploading images");
     }
+    
     setPhotoLoading(false);
   };
 
@@ -199,7 +242,6 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
     navigator.geolocation.getCurrentPosition(async (p) => {
       try {
         const city = await getCityFromCoordinates(p.coords.latitude, p.coords.longitude);
-        // FIX: Correctly using 'prev' in callback to avoid ReferenceError
         setFormData(prev => ({ 
           ...prev, 
           lat: p.coords.latitude, 

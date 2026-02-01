@@ -38,8 +38,41 @@ export const triggerHaptic = (type = 'light') => {
   window.navigator.vibrate(patterns[type] || patterns.light);
 };
 
+// ✅ NEW: Returns Blob for Firebase Storage (COST-EFFICIENT)
 export const compressImage = (file) => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      const img = new Image();
+      img.src = e.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX = 600;
+        const scale = MAX / img.width;
+        canvas.width = MAX;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        // ✅ Convert to Blob instead of Base64 (for Firebase Storage)
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to create blob'));
+          }
+        }, 'image/jpeg', 0.6);
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+  });
+};
+
+// 🔄 BACKWARD COMPATIBILITY: Old Base64 version (kept for any legacy code)
+export const compressImageToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = (e) => {
@@ -55,6 +88,8 @@ export const compressImage = (file) => {
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         resolve(canvas.toDataURL('image/jpeg', 0.6));
       };
+      img.onerror = () => reject(new Error('Failed to load image'));
     };
+    reader.onerror = () => reject(new Error('Failed to read file'));
   });
 };
