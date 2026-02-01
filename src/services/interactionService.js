@@ -1,57 +1,67 @@
-import { doc, getDoc, setDoc, addDoc, deleteDoc, collection, serverTimestamp } from 'firebase/firestore'; // Added deleteDoc
+import { doc, runTransaction, setDoc, deleteDoc, collection, serverTimestamp } from 'firebase/firestore'; 
 import { db } from '../firebase';
 
 export const swipeRight = async (myUid, targetUid) => {
-  await setDoc(doc(db, "likes", `${myUid}_${targetUid}`), {
-    from: myUid,
-    to: targetUid,
-    timestamp: Date.now()
-  });
+  if (!myUid || !targetUid) return { isMatch: false };
 
-  const reverseLikeSnap = await getDoc(doc(db, "likes", `${targetUid}_${myUid}`));
+  // 1. ALWAYS SORT IDs to ensure A->B and B->A generate the same Match ID
+  const matchId = [myUid, targetUid].sort().join("_");
 
-  if (reverseLikeSnap.exists()) {
-    const matchId = [myUid, targetUid].sort().join("_");
-    await setDoc(doc(db, "matches", matchId), {
-      users: [myUid, targetUid],
-      lastActivity: serverTimestamp(),
-      timestamp: Date.now()
-    }, { merge: true });
-    return { isMatch: true };
+  try {
+    return await runTransaction(db, async (transaction) => {
+      // Check if they liked us
+      const reverseLikeRef = doc(db, "likes", `${targetUid}_${myUid}`);
+      const reverseLikeSnap = await transaction.get(reverseLikeRef);
+
+      // Record our like
+      const likeRef = doc(db, "likes", `${myUid}_${targetUid}`);
+      transaction.set(likeRef, {
+        from: myUid,
+        to: targetUid,
+        timestamp: Date.now()
+      });
+
+      // If Mutual Like -> Create Match
+      if (reverseLikeSnap.exists()) {
+        const matchRef = doc(db, "matches", matchId);
+        
+        transaction.set(matchRef, {
+          users: [myUid, targetUid], // Necessary for "array-contains" query
+          lastActivity: serverTimestamp(),
+          timestamp: Date.now(),
+          lastMsg: "New Match! Say Hello 👋",
+          lastSenderId: "system"
+        });
+        
+        return { isMatch: true };
+      }
+      
+      return { isMatch: false };
+    });
+  } catch (e) {
+    console.error("Swipe Error:", e);
+    return { isMatch: false };
   }
-
-  return { isMatch: false };
 };
 
 export const swipeLeft = async (myUid, targetUid) => {
-  await setDoc(doc(db, "passes", `${myUid}_${targetUid}`), {
-    from: myUid,
-    to: targetUid,
-    timestamp: Date.now()
-  });
+  if (!myUid || !targetUid) return;
+  try {
+    await setDoc(doc(db, "passes", `${myUid}_${targetUid}`), {
+        from: myUid,
+        to: targetUid,
+        timestamp: Date.now()
+    });
+  } catch (e) { console.error(e); }
 };
 
-// LOGIC FIX: Updated Report function to DESTROY the match
-export const reportUser = async (reporterUid, offenderId, offenderName, reason) => {
-  // 1. Create the report
-  await addDoc(collection(db, "reports"), { 
-    reporterId: reporterUid,
-    offenderId: offenderId, 
-    offenderName: offenderName, 
-    reason: reason, 
-    timestamp: serverTimestamp() 
-  });
-
-  // 2. LOGIC FIX: Check if a match exists and DELETE it to stop chatting
-  const matchId = [reporterUid, offenderId].sort().join("_");
-  const matchRef = doc(db, "matches", matchId);
-  
+export const unmatchUser = async (myUid, targetUid) => {
+  const matchId = [myUid, targetUid].sort().join("_");
   try {
-    // We try to delete the match document. 
-    // Even if it doesn't exist (they just swiped left), this is safe to run.
-    await deleteDoc(matchRef);
-  } catch (e) {
-    // Ignore error if match didn't exist
-    console.log("No match found to delete, just reporting.");
-  }
+    await deleteDoc(doc(db, "matches", matchId));
+    // Clean up likes so they don't reappear immediately
+    await deleteDoc(doc(db, "likes", `${myUid}_${targetUid}`));
+    await deleteDoc(doc(db, "likes", `${targetUid}_${myUid}`));
+    return true;
+  } catch (e) { return true; }
 };

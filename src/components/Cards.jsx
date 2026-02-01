@@ -1,107 +1,147 @@
 import React, { useState } from 'react';
 import TinderCard from 'react-tinder-card';
-import { motion } from 'framer-motion';
-import { Info, ShieldAlert, MapPin, CheckCircle2, Sparkles } from 'lucide-react';
-import { getDistance, triggerHaptic, calculateCompatibility } from '../services/utils';
+import { MapPin, Sparkles, ChevronUp, IndianRupee } from 'lucide-react';
+import { triggerHaptic, calculateCompatibility } from '../services/utils';
 
-export const Card = ({ person, onSwipe, onCardLeftScreen, userLocation, onReport, onInfo, myProfile }) => {
-  const [imgLoaded, setImgLoaded] = useState(false);
+export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [swipeState, setSwipeState] = useState(null); // 'like', 'nope', or null
 
-  // ✅ Safety Check: Handle undefined or empty image arrays
+  // Ensure images exist, otherwise fallback
   const images = (person.images && person.images.length > 0) 
     ? person.images 
-    : [person.img || 'https://images.unsplash.com/photo-1511367461989-f85a21fda167'];
+    : [person.img || 'https://via.placeholder.com/400x600?text=No+Image'];
 
-  const vibeScore = calculateCompatibility(myProfile?.tags, person.tags);
+  const vibeScore = React.useMemo(() => calculateCompatibility(myProfile?.tags, person.tags), [myProfile, person]);
 
+  // Handle tapping left/right sides of the image
   const handleTap = (e) => {
+    // If clicking the info area at the bottom, don't change photos
+    if (e.target.closest('.info-trigger')) return;
+
     const cardWidth = e.currentTarget.offsetWidth;
     const tapX = e.nativeEvent.offsetX;
-    triggerHaptic('light');
+    
     if (tapX > cardWidth / 2) {
-      if (currentIndex < images.length - 1) setCurrentIndex(prev => prev + 1);
-      else setCurrentIndex(0);
+      // Tap Right -> Next Photo
+      if (currentIndex < images.length - 1) {
+        triggerHaptic('light');
+        setCurrentIndex(prev => prev + 1);
+      } else {
+        // Loop back to start (optional behavior)
+        setCurrentIndex(0);
+      }
     } else {
-      if (currentIndex > 0) setCurrentIndex(prev => prev - 1);
+      // Tap Left -> Prev Photo
+      if (currentIndex > 0) {
+        triggerHaptic('light');
+        setCurrentIndex(prev => prev - 1);
+      }
     }
   };
 
   return (
-    <div className="absolute w-full h-[600px] max-w-[400px] select-none">
+    <div className="absolute w-full h-[640px] max-w-[400px] select-none perspective-1000">
       <TinderCard
         className="swipe absolute w-full h-full"
+        key={person.id}
         onSwipe={(dir) => onSwipe(dir, person)}
         onCardLeftScreen={() => onCardLeftScreen(person.id)}
         preventSwipe={['up', 'down']}
+        // PHYSICS TWEAKS:
+        swipeRequirementType="velocity" // Allows fast flicks to count
+        swipeThreshold={0.3} // Easier to swipe (lower number = easier)
+        onSwipeRequirementFulfilled={(dir) => {
+            triggerHaptic('medium');
+            setSwipeState(dir === 'right' ? 'like' : 'nope');
+        }}
+        onSwipeRequirementUnfulfilled={() => setSwipeState(null)}
       >
-        <div onClick={handleTap} className="relative w-full h-full bg-[#0a0a0a] rounded-[3rem] overflow-hidden shadow-2xl border border-white/5 cursor-pointer">
+        <div 
+          onClick={handleTap} 
+          className="relative w-full h-full bg-[#1a1a1a] rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/5 cursor-pointer"
+        >
           
-          {/* Progress indicators for multi-image support */}
-          <div className="absolute top-4 left-6 right-6 z-30 flex gap-1.5">
+          {/* --- IMAGE LAYER --- */}
+          <img 
+            src={images[currentIndex]} 
+            className="w-full h-full object-cover pointer-events-none"
+            alt={person.name}
+          />
+          
+          {/* Preload next image */}
+          {currentIndex < images.length - 1 && <img src={images[currentIndex+1]} className="hidden" alt="preload"/>}
+
+          {/* --- GRADIENTS --- */}
+          {/* Top gradient for visibility */}
+          <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
+          {/* Bottom gradient for text */}
+          <div className="absolute bottom-0 left-0 w-full h-3/5 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+
+          {/* --- PROGRESS BARS --- */}
+          <div className="absolute top-3 left-4 right-4 z-30 flex gap-1.5 pointer-events-none">
             {images.map((_, i) => (
-              <div key={i} className={`h-1 flex-1 rounded-full ${i === currentIndex ? 'bg-white shadow-[0_0_10px_white]' : 'bg-white/20'}`} />
+              <div 
+                key={i} 
+                className={`h-1 flex-1 rounded-full transition-all duration-300 ${i === currentIndex ? 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'bg-white/20'}`} 
+              />
             ))}
           </div>
 
-          {!imgLoaded && <div className="absolute inset-0 animate-pulse bg-slate-900" />}
-          <img 
-            src={images[currentIndex]} 
-            className={`w-full h-full object-cover transition-opacity duration-500 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`} 
-            onLoad={() => setImgLoaded(true)} 
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-black/20 pointer-events-none" />
+          {/* --- STAMPS (LIKE / NOPE) --- */}
+          {swipeState === 'like' && (
+             <div className="absolute top-10 left-6 -rotate-12 border-[5px] border-emerald-400 text-emerald-400 px-4 py-1 rounded-xl font-black text-4xl tracking-widest bg-black/20 backdrop-blur-sm z-50 animate-in zoom-in duration-200">
+                 YES
+             </div>
+          )}
+          {swipeState === 'nope' && (
+             <div className="absolute top-10 right-6 rotate-12 border-[5px] border-rose-500 text-rose-500 px-4 py-1 rounded-xl font-black text-4xl tracking-widest bg-black/20 backdrop-blur-sm z-50 animate-in zoom-in duration-200">
+                 NOPE
+             </div>
+          )}
 
-          {/* Vibe Match Badge */}
-          <div className="absolute top-10 left-8 z-20">
-             <div className="px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl border border-white/20 flex items-center gap-2">
-                <Sparkles size={14} className="text-yellow-400 fill-yellow-400"/>
-                <span className="text-[10px] font-black text-white uppercase">{vibeScore}% Vibe Match</span>
+          {/* --- VIBE BADGE --- */}
+          <div className="absolute top-6 right-4 z-20">
+             <div className="px-3 py-1 bg-black/40 backdrop-blur-md border border-white/10 rounded-full flex items-center gap-1.5 shadow-lg">
+                <Sparkles size={12} className="text-yellow-400 fill-yellow-400 animate-pulse"/>
+                <span className="text-[10px] font-bold text-white uppercase tracking-wider">{vibeScore}% Match</span>
              </div>
           </div>
 
-          {/* Report Button */}
-          <div className="absolute top-10 right-8 z-20">
-             <button onClick={(e) => { e.stopPropagation(); onReport(person); }} className="p-2.5 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 text-white hover:text-red-500 transition-colors">
-                <ShieldAlert size={18}/>
-             </button>
+          {/* --- BOTTOM INFO PANEL (Clickable) --- */}
+          <div 
+            className="info-trigger absolute bottom-0 left-0 w-full p-5 pb-8 z-30 flex flex-col justify-end group/info"
+            onClick={(e) => { e.stopPropagation(); onInfo(person); }}
+          >
+             {/* Name & Age */}
+             <div className="flex items-end gap-2 mb-2">
+                <h2 className="text-4xl font-black italic tracking-tighter text-white drop-shadow-md">
+                    {person.name}
+                </h2>
+                <span className="text-2xl font-medium text-white/80 mb-1">{person.age}</span>
+             </div>
+
+             {/* Details Row */}
+             <div className="flex items-center gap-3 text-xs font-bold text-white/80 uppercase tracking-wide mb-4">
+                <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-md backdrop-blur-sm">
+                    <MapPin size={12} className="text-pink-500"/> 
+                    {person.distance || '2'} km away
+                </div>
+                <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-md backdrop-blur-sm">
+                    <IndianRupee size={12} className="text-emerald-400"/> 
+                    {Number(person.rent).toLocaleString()}/mo
+                </div>
+             </div>
+
+             {/* "View Profile" Hint */}
+             <div className="w-full pt-3 border-t border-white/10 flex items-center justify-between text-white/60 group-hover/info:text-white transition-colors">
+                <span className="text-xs font-bold uppercase tracking-widest">View Profile</span>
+                <ChevronUp size={20} className="animate-bounce" />
+             </div>
           </div>
 
-          {/* Info Overlay */}
-          <div className="absolute bottom-10 left-8 right-8 text-white">
-            <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-4xl font-black italic tracking-tighter">{person.name}, {person.age}</h2>
-                <div className="p-1.5 bg-sky-500 rounded-full"><CheckCircle2 size={16}/></div>
-            </div>
-            
-            <div className="flex items-center gap-2 mb-6 text-slate-400 text-xs font-bold uppercase tracking-widest">
-                <MapPin size={14} className="text-pink-500"/> {person.city} • {person.occupation || 'Lifestyle'}
-            </div>
-            
-            <div className="flex items-center justify-between p-1.5 pl-5 bg-white/10 backdrop-blur-md rounded-[2rem] border border-white/10">
-                <div>
-                    <span className="text-[9px] font-black text-pink-500 uppercase">Rent Budget</span>
-                    <p className="text-2xl font-black text-white">₹{Number(person.rent).toLocaleString()}</p>
-                </div>
-                <button onClick={(e) => { e.stopPropagation(); onInfo(person); }} className="w-14 h-14 bg-white text-black rounded-[1.5rem] flex items-center justify-center hover:scale-110 active:scale-95 transition-all">
-                    <Info size={28} />
-                </button>
-            </div>
-          </div>
         </div>
       </TinderCard>
     </div>
   );
 };
-
-export const AdCard = ({ onSwipe }) => (
-  <div className="absolute w-full h-[600px] max-w-[400px] p-2">
-    <TinderCard className="swipe absolute w-full h-full" onSwipe={(dir) => onSwipe(dir, { isAd: true })}>
-      <div className="w-full h-full bg-gradient-to-br from-pink-600 to-indigo-900 rounded-[3rem] p-12 flex flex-col justify-center items-center text-center shadow-2xl border border-white/10">
-        <h2 className="text-white text-4xl font-black italic mb-4">SKIP THE BROKER</h2>
-        <p className="text-indigo-100 font-bold mb-8 uppercase text-xs">Direct Lifestyle Matches</p>
-        <button className="bg-white text-indigo-900 px-10 py-4 rounded-2xl font-black text-lg shadow-xl">PRO UPGRADE</button>
-      </div>
-    </TinderCard>
-  </div>
-);

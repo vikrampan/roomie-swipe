@@ -1,75 +1,95 @@
-import { collection, query, orderBy, getDocs, startAt, endAt, where } from 'firebase/firestore';
+import { collection, query, orderBy, getDocs, startAt, endAt, where, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
 
+// Helper to prevent re-reading the same users in one session
+const getCachedIds = () => {
+  try { return new Set(JSON.parse(sessionStorage.getItem('seen_users') || '[]')); } 
+  catch { return new Set(); }
+};
+
+const addToCache = (newIds) => {
+  const current = getCachedIds();
+  newIds.forEach(id => current.add(id));
+  sessionStorage.setItem('seen_users', JSON.stringify(Array.from(current)));
+};
+
 export const getNearbyUsers = async (currentUser, location, radiusKm, filters, blockedIds) => {
-  if (!currentUser || !location || !location.lat) {
-    return [];
-  }
+  if (!currentUser || !location || !location.lat) return [];
 
-  const excludeIds = new Set();
-  
+  const excludeIds = new Set([...(blockedIds || []), currentUser.uid]);
+  const cachedSeen = getCachedIds();
+
+  // 1. Get recent interactions to exclude
   try {
-    const recentLimit = Date.now() - (7 * 24 * 60 * 60 * 1000); 
-
-    const passesQuery = query(
-      collection(db, "passes"),
-      where("from", "==", currentUser.uid),
-      where("timestamp", ">", recentLimit)
-    );
-    
-    const likesQuery = query(
-      collection(db, "likes"),
-      where("from", "==", currentUser.uid),
-      where("timestamp", ">", recentLimit)
-    );
-
-    const [passedSnap, likedSnap] = await Promise.all([
-      getDocs(passesQuery),
-      getDocs(likesQuery)
+    const recentLimit = Date.now() - (30 * 24 * 60 * 60 * 1000); 
+    const [passes, likes] = await Promise.all([
+      getDocs(query(collection(db, "passes"), where("from", "==", currentUser.uid), where("timestamp", ">", recentLimit))),
+      getDocs(query(collection(db, "likes"), where("from", "==", currentUser.uid), where("timestamp", ">", recentLimit)))
     ]);
-
-    passedSnap.docs.forEach(d => excludeIds.add(d.data().to));
-    likedSnap.docs.forEach(d => excludeIds.add(d.data().to));
-
+    passes.docs.forEach(d => excludeIds.add(d.data().to));
+    likes.docs.forEach(d => excludeIds.add(d.data().to));
   } catch (error) {
-    console.warn("Feed Filter Warning: Showing all users.", error);
+    console.warn("History fetch warning:", error);
   }
 
+  // 2. GEOHASH QUERY
   const center = [location.lat, location.lng];
   const radiusInM = radiusKm * 1000;
   const bounds = geohashQueryBounds(center, radiusInM);
   
-  const promises = [];
+  const results = [];
+  const MAX_RESULTS = 20; 
+
   for (const b of bounds) {
-    // ✅ Updated from 'profiles' to 'users'
+    if (results.length >= MAX_RESULTS) break;
+
     const q = query(
       collection(db, 'users'), 
       orderBy('geohash'),
       startAt(b[0]),
-      endAt(b[1])
+      endAt(b[1]),
+      limit(40)
     );
-    promises.push(getDocs(q));
-  }
 
-  const snapshots = await Promise.all(promises);
-  const results = [];
+    const snap = await getDocs(q);
 
-  for (const snap of snapshots) {
     for (const doc of snap.docs) {
       const data = doc.data();
       
-      if (data.uid === currentUser.uid) continue; 
-      if (blockedIds?.includes(doc.id)) continue;  
-      if (excludeIds.has(doc.id)) continue;       
-      
-      if (filters?.gender !== "All" && data.gender !== filters.gender) continue; 
+      // --- CRITICAL FILTERS ---
+      // 1. Exclude Self (Using Document ID is safer than data.uid)
+      if (doc.id === currentUser.uid) continue;
 
-      const distanceInKm = distanceBetween([data.lat, data.lng], center);
+      // 2. Exclude Blocked/Interacted
+      if (excludeIds.has(doc.id)) continue;
+      
+      // 3. Cache Check (Uncomment for production cost saving)
+      // if (cachedSeen.has(doc.id)) continue; 
+      
+      // 4. Gender Filter
+      if (filters?.gender && filters.gender !== "All" && data.gender !== filters.gender) continue; 
+
+      // 5. Robust Coordinate Extraction
+      const userLat = data.lat || data.latitude;
+      const userLng = data.lng || data.long || data.longitude;
+
+      if (!userLat || !userLng) continue;
+
+      // 6. Strict Distance Check
+      const distanceInKm = distanceBetween([userLat, userLng], center);
+      
       if (distanceInKm <= radiusKm) {
-        results.push({ id: doc.id, ...data });
+        results.push({ 
+            id: doc.id, 
+            ...data, 
+            distance: distanceInKm.toFixed(1) 
+        });
+        if (results.length >= MAX_RESULTS) break;
       }
     }
   }
+
+  addToCache(results.map(r => r.id));
   return results;
 };
