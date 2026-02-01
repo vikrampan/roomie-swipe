@@ -1,18 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { auth, db, provider } from './firebase';
 import { signInWithPopup } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore'; 
-import { Card } from './components/Cards';
-import { ChatModal } from './components/Chat';
-import { MatchPopup, DetailModal, ReportModal } from './components/Modals';
-import { CreateProfileForm } from './components/Forms';
 import { LandingPage } from './components/LandingPage';
 import { triggerHaptic } from './services/utils';
 import { swipeRight, swipeLeft } from './services/interactionService';
 import { getNearbyUsers } from './services/feedService'; 
-import { subscribeToMatches } from './services/chatService'; 
+import { fetchMatches } from './services/chatService'; 
 import { MessageCircle, User, Loader2, Minus, Plus, MapPin, Sparkles } from 'lucide-react';
+
+// --- LAZY LOAD COMPONENTS (Performance Fix) ---
+// These files will NOT download until the user logs in, keeping the landing page fast.
+const Card = lazy(() => import('./components/Cards').then(m => ({ default: m.Card })));
+const ChatModal = lazy(() => import('./components/Chat').then(m => ({ default: m.ChatModal })));
+const CreateProfileForm = lazy(() => import('./components/Forms').then(m => ({ default: m.CreateProfileForm })));
+const MatchPopup = lazy(() => import('./components/Modals').then(m => ({ default: m.MatchPopup })));
+const DetailModal = lazy(() => import('./components/Modals').then(m => ({ default: m.DetailModal })));
+const ReportModal = lazy(() => import('./components/Modals').then(m => ({ default: m.ReportModal })));
 
 // --- CUSTOM DOODLE ANIMATION ---
 const DoodleSearchAnim = () => {
@@ -38,8 +43,7 @@ export default function App() {
   const [myProfile, setMyProfile] = useState(null);
   const [people, setPeople] = useState([]);
   
-  // 🔴 IMPORTANT: Initialize loading as TRUE. 
-  // This prevents the Landing Page from flashing before we check Auth.
+  // Initialize loading as TRUE to prevent Landing Page flash
   const [loading, setLoading] = useState(true); 
   
   const [activeTab, setActiveTab] = useState('swipe');
@@ -97,17 +101,23 @@ export default function App() {
     return () => unsub();
   }, [user]);
 
-  // --- 3. NOTIFICATION LISTENER ---
+  // --- 3. NOTIFICATION POLLER (Cost Optimized) ---
   useEffect(() => {
     if (!user) return;
     
-    // Listen for unread messages
-    const unsub = subscribeToMatches(user.uid, (matches) => {
-      const hasUnread = matches.some(m => m.hasNotification);
-      setHasUnreadMessages(hasUnread);
-    });
+    // 🚀 COST FIX: Replaced real-time listener with a Polling mechanism
+    // This saves massive reads. Instead of keeping a connection open,
+    // we check for red dots once on load, and then every 2 minutes.
+    const checkUnread = async () => {
+        const matches = await fetchMatches(user.uid);
+        const hasUnread = matches.some(m => m.hasNotification);
+        setHasUnreadMessages(hasUnread);
+    };
 
-    return () => unsub();
+    checkUnread(); // Check immediately
+    
+    const interval = setInterval(checkUnread, 120000); // Check every 2 mins
+    return () => clearInterval(interval);
   }, [user]);
 
   // --- 4. FEED FETCHING ---
@@ -236,94 +246,100 @@ export default function App() {
       {/* Main Content */}
       <div className="flex-1 relative flex justify-center items-center p-4 z-10">
         
-        {!isProfileComplete ? (
-           <div className="flex flex-col items-center justify-center text-center max-w-sm">
-              <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                  <User size={48} className="text-slate-500"/>
-              </div>
-              <h2 className="text-2xl font-black italic text-white mb-2">Complete Your Profile</h2>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-8">
-                  You need a name and photo to start swiping.
-              </p>
-              <button 
-                onClick={() => setActiveTab('profile')}
-                className="px-8 py-3 bg-white text-black rounded-full font-black text-xs hover:scale-105 transition-all flex items-center gap-2"
-              >
-                  <Sparkles size={14}/> SETUP NOW
-              </button>
-           </div>
-        ) : (
-           <>
-            <AnimatePresence>
-              {people.map((person) => (
-                <Card 
-                  key={person.id} 
-                  person={person} 
-                  myProfile={myProfile}
-                  onSwipe={onSwipe} 
-                  onCardLeftScreen={handleCardLeftScreen}
-                  onInfo={setSelectedPerson} 
-                  onReport={setReportingPerson}
-                />
-              ))}
-            </AnimatePresence>
+        <Suspense fallback={<div className="flex justify-center"><Loader2 className="animate-spin text-pink-500"/></div>}>
+          {!isProfileComplete ? (
+             <div className="flex flex-col items-center justify-center text-center max-w-sm">
+                <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6 animate-pulse">
+                    <User size={48} className="text-slate-500"/>
+                </div>
+                <h2 className="text-2xl font-black italic text-white mb-2">Complete Your Profile</h2>
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-8">
+                    You need a name and photo to start swiping.
+                </p>
+                <button 
+                  onClick={() => setActiveTab('profile')}
+                  className="px-8 py-3 bg-white text-black rounded-full font-black text-xs hover:scale-105 transition-all flex items-center gap-2"
+                >
+                    <Sparkles size={14}/> SETUP NOW
+                </button>
+             </div>
+          ) : (
+             <>
+              <AnimatePresence>
+                {people.map((person) => (
+                  <Card 
+                    key={person.id} 
+                    person={person} 
+                    myProfile={myProfile}
+                    onSwipe={onSwipe} 
+                    onCardLeftScreen={handleCardLeftScreen}
+                    onInfo={setSelectedPerson} 
+                    onReport={setReportingPerson}
+                  />
+                ))}
+              </AnimatePresence>
 
-            {people.length === 0 && !loading && (
-              <div className="flex flex-col items-center justify-center text-center z-0 w-full max-w-sm">
-                <DoodleSearchAnim />
-                <div className="space-y-2 mt-4 mb-8 relative z-10">
-                    <h2 className="text-2xl font-black italic text-white tracking-tight">Scanning Area...</h2>
-                    <p className="text-slate-400 text-xs font-bold uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">
-                      We've looked everywhere within {searchRadius}km.
-                    </p>
+              {people.length === 0 && !loading && (
+                <div className="flex flex-col items-center justify-center text-center z-0 w-full max-w-sm">
+                  <DoodleSearchAnim />
+                  <div className="space-y-2 mt-4 mb-8 relative z-10">
+                      <h2 className="text-2xl font-black italic text-white tracking-tight">Scanning Area...</h2>
+                      <p className="text-slate-400 text-xs font-bold uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">
+                        We've looked everywhere within {searchRadius}km.
+                      </p>
+                  </div>
+                  <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 rounded-2xl backdrop-blur-md shadow-xl">
+                      <button onClick={handleDecreaseRadius} disabled={searchRadius <= 50} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30"><Minus size={16} className="text-slate-300"/></button>
+                      <div className="flex flex-col items-center w-24">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Radius</span>
+                          <span className="text-lg font-black text-white flex items-center gap-1"><MapPin size={12} className="text-pink-500" fill="currentColor"/> {searchRadius} km</span>
+                      </div>
+                      <button onClick={handleIncreaseRadius} disabled={searchRadius >= 500} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/10 hover:bg-pink-500/20 border border-white/5 hover:border-pink-500/50 active:scale-95 transition-all disabled:opacity-30 group"><Plus size={16} className="text-white group-hover:text-pink-500 transition-colors"/></button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 rounded-2xl backdrop-blur-md shadow-xl">
-                    <button onClick={handleDecreaseRadius} disabled={searchRadius <= 50} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30"><Minus size={16} className="text-slate-300"/></button>
-                    <div className="flex flex-col items-center w-24">
-                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Radius</span>
-                        <span className="text-lg font-black text-white flex items-center gap-1"><MapPin size={12} className="text-pink-500" fill="currentColor"/> {searchRadius} km</span>
-                    </div>
-                    <button onClick={handleIncreaseRadius} disabled={searchRadius >= 500} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/10 hover:bg-pink-500/20 border border-white/5 hover:border-pink-500/50 active:scale-95 transition-all disabled:opacity-30 group"><Plus size={16} className="text-white group-hover:text-pink-500 transition-colors"/></button>
-                </div>
-              </div>
-            )}
-           </>
-        )}
+              )}
+             </>
+          )}
+        </Suspense>
       </div>
 
       {/* Modals & Forms */}
       <AnimatePresence>
-        {(activeTab === 'profile' || showProfileForm) && (
-           <CreateProfileForm 
-             user={user} 
-             existingData={myProfile} 
-             onCancel={() => { 
-                if (isProfileComplete) {
-                   setActiveTab('swipe'); 
-                   setShowProfileForm(false); 
-                } else {
-                   alert("Please add a Name and Photo to continue.");
-                }
-             }} 
-             showToast={(msg) => alert(msg)} 
-           />
-        )}
-        
-        {activeTab === 'chat' && <ChatModal user={user} onClose={() => setActiveTab('swipe')} />}
-        {selectedPerson && <DetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />}
-        {reportingPerson && <ReportModal person={reportingPerson} onConfirm={() => setReportingPerson(null)} onCancel={() => setReportingPerson(null)} />}
-        
-        {/* MATCH POPUP - Connects to Chat */}
-        {matchData && (
-          <MatchPopup 
-            person={matchData} 
-            onClose={() => setMatchData(null)} 
-            onChat={() => {
-              setMatchData(null);
-              setActiveTab('chat');
-            }} 
-          />
-        )}
+        <Suspense fallback={<div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center"><Loader2 className="animate-spin text-pink-500" size={32}/></div>}>
+          {(activeTab === 'profile' || showProfileForm) && (
+             <CreateProfileForm 
+               user={user} 
+               existingData={myProfile} 
+               onCancel={() => { 
+                  if (isProfileComplete) {
+                     setActiveTab('swipe'); 
+                     setShowProfileForm(false); 
+                  } else {
+                     alert("Please add a Name and Photo to continue.");
+                  }
+               }} 
+               showToast={(msg) => alert(msg)} 
+             />
+          )}
+          
+          {activeTab === 'chat' && <ChatModal user={user} onClose={() => setActiveTab('swipe')} />}
+          
+          {selectedPerson && <DetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />}
+          
+          {reportingPerson && <ReportModal person={reportingPerson} onConfirm={() => setReportingPerson(null)} onCancel={() => setReportingPerson(null)} />}
+          
+          {/* MATCH POPUP - Connects to Chat */}
+          {matchData && (
+            <MatchPopup 
+              person={matchData} 
+              onClose={() => setMatchData(null)} 
+              onChat={() => {
+                setMatchData(null);
+                setActiveTab('chat');
+              }} 
+            />
+          )}
+        </Suspense>
       </AnimatePresence>
     </div>
   );

@@ -20,9 +20,10 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
   const excludeIds = new Set([...(blockedIds || []), currentUser.uid]);
   const cachedSeen = getCachedIds();
 
-  // 1. Get recent interactions to exclude
+  // 1. Get recent interactions to exclude (Limit to last 30 days)
   try {
     const recentLimit = Date.now() - (30 * 24 * 60 * 60 * 1000); 
+    // Run concurrently
     const [passes, likes] = await Promise.all([
       getDocs(query(collection(db, "passes"), where("from", "==", currentUser.uid), where("timestamp", ">", recentLimit))),
       getDocs(query(collection(db, "likes"), where("from", "==", currentUser.uid), where("timestamp", ">", recentLimit)))
@@ -49,7 +50,7 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
       orderBy('geohash'),
       startAt(b[0]),
       endAt(b[1]),
-      limit(40)
+      limit(40) // Limit per geohash bound
     );
 
     const snap = await getDocs(q);
@@ -57,26 +58,19 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
     for (const doc of snap.docs) {
       const data = doc.data();
       
-      // --- CRITICAL FILTERS ---
-      // 1. Exclude Self (Using Document ID is safer than data.uid)
+      // FILTERS
       if (doc.id === currentUser.uid) continue;
-
-      // 2. Exclude Blocked/Interacted
       if (excludeIds.has(doc.id)) continue;
+      if (cachedSeen.has(doc.id)) continue; // 🚀 Use cache to save reads
       
-      // 3. Cache Check (Uncomment for production cost saving)
-      // if (cachedSeen.has(doc.id)) continue; 
-      
-      // 4. Gender Filter
+      // Gender Filter
       if (filters?.gender && filters.gender !== "All" && data.gender !== filters.gender) continue; 
 
-      // 5. Robust Coordinate Extraction
       const userLat = data.lat || data.latitude;
       const userLng = data.lng || data.long || data.longitude;
 
       if (!userLat || !userLng) continue;
 
-      // 6. Strict Distance Check
       const distanceInKm = distanceBetween([userLat, userLng], center);
       
       if (distanceInKm <= radiusKm) {

@@ -1,40 +1,63 @@
 import { 
-  collection, query, where, onSnapshot, doc, getDoc, 
-  orderBy, addDoc, updateDoc, serverTimestamp 
+  collection, query, where, getDocs, onSnapshot, doc, getDoc, 
+  orderBy, addDoc, updateDoc, serverTimestamp, limit 
 } from 'firebase/firestore';
 import { db } from '../firebase';
 
 const profileCache = new Map();
 
-// --- 1. LOAD MATCH LIST ---
-export const subscribeToMatches = (currentUserId, callback) => {
-  // Query: Find all matches where 'users' array contains my ID
-  const q = query(
-    collection(db, "matches"), 
-    where("users", "array-contains", currentUserId),
+// --- 1. GET MATCHES (One-Time Fetch - Saves $$$) ---
+export const fetchMatches = async (currentUserId) => {
+  try {
+    const q = query(
+      collection(db, "matches"), 
+      where("users", "array-contains", currentUserId),
+      orderBy("lastActivity", "desc"), // Ensure you have a composite index for this in Firestore
+      limit(50) // Load max 50 recent matches
+    );
+
+    const snapshot = await getDocs(q);
     
-  );
+    if (snapshot.empty) return [];
 
-  return onSnapshot(q, async (snapshot) => {
-    const rawMatches = [];
-    const neededIds = new Set();
+    const results = [];
+    const missingProfiles = new Set();
 
-    snapshot.docs.forEach(matchDoc => {
-      // 🛡️ Safety: Filter out bad data instantly
-      if (!matchDoc.id.includes('_')) return;
-
+    // Pass 1: Process matches & identify missing profiles
+    for (const matchDoc of snapshot.docs) {
+      if (!matchDoc.id.includes('_')) continue;
+      
       const data = matchDoc.data();
       const theirId = data.users.find(uid => uid !== currentUserId);
       
-      if (theirId) {
-        neededIds.add(theirId);
-        rawMatches.push({ id: matchDoc.id, theirId, data });
-      }
-    });
+      if (!theirId) continue;
 
-    // Fetch Profiles
+      // Check if we have denormalized data (The new "Cheap" way)
+      if (data.profiles && data.profiles[theirId]) {
+        results.push({
+          id: matchDoc.id,
+          theirId,
+          ...data.profiles[theirId], // Name & Img directly from match doc
+          lastMsg: data.lastMsg || "",
+          lastSenderId: data.lastSenderId || "",
+          timestamp: data.lastActivity,
+          hasNotification: data.lastMsg && data.lastSenderId !== currentUserId
+        });
+      } else {
+        // Legacy Data: We need to fetch this user's profile
+        missingProfiles.add(theirId);
+        results.push({
+            id: matchDoc.id,
+            theirId,
+            isLegacy: true, // Marker to merge later
+            data
+        });
+      }
+    }
+
+    // Pass 2: Bulk fetch missing profiles (Legacy support)
     const fetchPromises = [];
-    neededIds.forEach(uid => {
+    missingProfiles.forEach(uid => {
       if (!profileCache.has(uid)) {
         const p = getDoc(doc(db, "users", uid)).then(snap => {
           if (snap.exists()) profileCache.set(uid, snap.data());
@@ -46,42 +69,40 @@ export const subscribeToMatches = (currentUserId, callback) => {
 
     if (fetchPromises.length > 0) await Promise.all(fetchPromises);
 
-    // Merge Data
-    const results = rawMatches.map(m => {
-      const profile = profileCache.get(m.theirId);
-      return {
-        id: m.id,
-        theirId: m.theirId,
-        name: profile?.name || "Unknown",
-        img: profile?.img || "https://via.placeholder.com/150",
-        lastMsg: m.data.lastMsg || "",
-        lastSenderId: m.data.lastSenderId || "",
-        hasNotification: m.data.lastMsg && m.data.lastSenderId !== currentUserId
-      };
-    });
-    results.sort((a, b) => {
-       const tA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(0);
-       const tB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(0);
-       return tB - tA; // Newest on top
+    // Pass 3: Final Merge
+    return results.map(item => {
+        if (!item.isLegacy) return item;
+        
+        const profile = profileCache.get(item.theirId);
+        return {
+            id: item.id,
+            theirId: item.theirId,
+            name: profile?.name || "Unknown",
+            img: (profile?.images && profile.images[0]) || profile?.img || "https://via.placeholder.com/150",
+            lastMsg: item.data.lastMsg || "",
+            lastSenderId: item.data.lastSenderId || "",
+            timestamp: item.data.lastActivity,
+            hasNotification: item.data.lastMsg && item.data.lastSenderId !== currentUserId
+        };
     });
 
-    callback(results);
-  });
+  } catch (error) {
+    console.error("Error fetching matches:", error);
+    return [];
+  }
 };
 
 // --- 2. SEND MESSAGE ---
 export const sendMessage = async (matchId, senderId, text) => {
-  if (!text.trim()) return;
+  if (!text || !text.trim() || !matchId.includes('_')) return;
 
   try {
-    // A. Add message to subcollection
     await addDoc(collection(db, "matches", matchId, "messages"), {
       senderId, 
       text, 
       timestamp: serverTimestamp()
     });
 
-    // B. Update dashboard preview
     await updateDoc(doc(db, "matches", matchId), {
       lastMsg: text, 
       lastSenderId: senderId, 
@@ -93,22 +114,27 @@ export const sendMessage = async (matchId, senderId, text) => {
   }
 };
 
-// --- 3. LOAD MESSAGES ---
+// --- 3. SUBSCRIBE TO MESSAGES (Limited) ---
 export const subscribeToMessages = (matchId, callback) => {
+  if (!matchId || !matchId.includes('_')) {
+      callback([]);
+      return () => {};
+  }
+
   const q = query(
-      collection(db, "matches", matchId, "messages"),
-      orderBy("timestamp", "asc")
+      collection(db, "matches", matchId, "messages"), 
+      orderBy("timestamp", "asc"),
+      limit(20) // 🚀 COST OPTIMIZATION: Only load last 20 messages
   );
   
   return onSnapshot(q, (snapshot) => {
-    const msgs = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
+    const msgs = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
     }));
     callback(msgs);
   }, (error) => {
-    // If you see "Missing Permissions" here, it means the Match ID is wrong
-    console.error("Message Listener Error:", error);
-    callback([]);
+      console.error("Message Listener Error:", error);
+      callback([]);
   });
 };

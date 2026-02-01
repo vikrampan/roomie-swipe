@@ -4,7 +4,7 @@ import {
   Send, X, MessageSquare, MoreVertical, ShieldAlert, HeartCrack, 
   ChevronLeft, CheckCheck, Image as ImageIcon
 } from 'lucide-react';
-import { subscribeToMatches, subscribeToMessages, sendMessage } from '../services/chatService'; 
+import { fetchMatches, subscribeToMessages, sendMessage } from '../services/chatService'; 
 import { unmatchUser } from '../services/interactionService';
 
 export const ChatModal = ({ user, onClose }) => {
@@ -17,20 +17,25 @@ export const ChatModal = ({ user, onClose }) => {
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
-  // 1. Load Matches List (Real-time)
+  // 1. Load Matches List (Async Fetch)
   useEffect(() => {
-    const unsub = subscribeToMatches(user.uid, (data) => {
-      // Filter out "Ghost" profiles
-      const validMatches = data.filter(m => m.id && m.name);
-      setMatches(validMatches);
-    });
-    return () => unsub();
+    let isMounted = true;
+    const loadData = async () => {
+        const data = await fetchMatches(user.uid);
+        if (isMounted) {
+            // Filter out ghosts
+            const valid = data.filter(m => m.id && m.name);
+            setMatches(valid);
+        }
+    };
+    loadData();
+    return () => { isMounted = false; };
   }, [user]);
 
   // 2. Load Conversation
   useEffect(() => {
     if (activeMatch) {
-      setMessages([]); // Clear previous chat instantly for UX
+      setMessages([]); 
       const unsub = subscribeToMessages(activeMatch.id, (newMsgs) => {
         setMessages(newMsgs);
       });
@@ -38,7 +43,7 @@ export const ChatModal = ({ user, onClose }) => {
     }
   }, [activeMatch]);
 
-  // Auto-scroll to bottom on new message
+  // Auto-scroll
   useEffect(() => {
     if (messagesEndRef.current) {
         messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -48,13 +53,13 @@ export const ChatModal = ({ user, onClose }) => {
   const handleSend = async () => {
     if (!inputText.trim()) return;
     const tempText = inputText;
-    setInputText(""); // Optimistic UI update
+    setInputText(""); 
     
     try {
         await sendMessage(activeMatch.id, user.uid, tempText);
     } catch (e) {
         console.error("Failed to send");
-        setInputText(tempText); // Restore on failure
+        setInputText(tempText); 
     }
   };
 
@@ -65,7 +70,6 @@ export const ChatModal = ({ user, onClose }) => {
     }
   };
 
-  // Helper to format timestamps nicely
   const formatTime = (timestamp) => {
     if (!timestamp) return "";
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -80,13 +84,11 @@ export const ChatModal = ({ user, onClose }) => {
     >
       {/* --- LEFT SIDE: MATCH LIST --- */}
       <div className={`flex-1 flex flex-col bg-black/40 border-r border-white/5 ${activeMatch ? 'hidden md:flex' : 'flex'}`}>
-          {/* Header */}
           <div className="p-5 border-b border-white/5 flex justify-between items-center bg-black/20 backdrop-blur-md">
               <h2 className="text-xl font-black italic tracking-tight">MESSAGES</h2>
-              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X/></button>
+              <button onClick={onClose} aria-label="Close Chat" className="p-2 hover:bg-white/10 rounded-full transition-colors"><X/></button>
           </div>
 
-          {/* Match Scroll */}
           <div className="flex-1 overflow-y-auto p-2 scrollbar-hide">
             {matches.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 text-slate-600 opacity-60">
@@ -102,7 +104,7 @@ export const ChatModal = ({ user, onClose }) => {
                     className={`flex items-center gap-4 p-4 mb-1 rounded-2xl cursor-pointer transition-all ${activeMatch?.id === m.id ? 'bg-white/10' : 'hover:bg-white/5'}`}
                 >
                     <div className="relative">
-                        <img src={m.img} className="w-12 h-12 rounded-full object-cover bg-slate-800"/>
+                        <img src={m.img} alt={m.name} className="w-12 h-12 rounded-full object-cover bg-slate-800"/>
                         {m.hasNotification && <div className="absolute top-0 right-0 w-3 h-3 bg-pink-500 border-2 border-black rounded-full"/>}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -123,13 +125,11 @@ export const ChatModal = ({ user, onClose }) => {
       {/* --- RIGHT SIDE: CHAT WINDOW --- */}
       {activeMatch ? (
         <div className="flex-[2] flex flex-col bg-[#080808] relative">
-            
-            {/* Chat Header */}
             <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between bg-black/60 backdrop-blur-xl absolute top-0 w-full z-10">
                 <div className="flex items-center gap-3">
                     <button onClick={() => setActiveMatch(null)} className="md:hidden p-2 -ml-2 hover:bg-white/10 rounded-full"><ChevronLeft/></button>
                     <div className="relative">
-                        <img src={activeMatch.img} className="w-10 h-10 rounded-full object-cover border border-white/10"/>
+                        <img src={activeMatch.img} alt={activeMatch.name} className="w-10 h-10 rounded-full object-cover border border-white/10"/>
                     </div>
                     <div>
                         <h3 className="font-bold text-sm leading-tight">{activeMatch.name}</h3>
@@ -138,7 +138,7 @@ export const ChatModal = ({ user, onClose }) => {
                 
                 <div className="flex items-center gap-1">
                     <div className="relative">
-                        <button onClick={() => setShowOptions(!showOptions)} className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white"><MoreVertical size={20}/></button>
+                        <button onClick={() => setShowOptions(!showOptions)} aria-label="Chat Options" className="p-2 hover:bg-white/10 rounded-full text-slate-400 hover:text-white"><MoreVertical size={20}/></button>
                         <AnimatePresence>
                             {showOptions && (
                                 <motion.div 
@@ -158,17 +158,15 @@ export const ChatModal = ({ user, onClose }) => {
                 </div>
             </div>
 
-            {/* Chat Body */}
             <div className="flex-1 overflow-y-auto p-4 pt-20 pb-4 space-y-4" ref={chatContainerRef}>
                 <div className="text-center py-8 opacity-30">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                        You matched with {activeMatch.name} on {new Date(activeMatch.timestamp).toLocaleDateString()}
+                        You matched on {new Date(activeMatch.timestamp).toLocaleDateString()}
                     </p>
                 </div>
 
                 {messages.map((msg, i) => {
                     const isMe = msg.senderId === user.uid;
-                    
                     return (
                         <motion.div 
                             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -181,9 +179,7 @@ export const ChatModal = ({ user, onClose }) => {
                                 </div>
                                 <div className="flex items-center gap-1 mt-1 px-1">
                                     <span className="text-[9px] font-bold text-slate-600">{formatTime(msg.timestamp)}</span>
-                                    {isMe && (
-                                        <CheckCheck size={12} className="text-pink-500" />
-                                    )}
+                                    {isMe && <CheckCheck size={12} className="text-pink-500" />}
                                 </div>
                             </div>
                         </motion.div>
@@ -192,7 +188,6 @@ export const ChatModal = ({ user, onClose }) => {
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area */}
             <div className="p-4 bg-black/80 backdrop-blur-xl border-t border-white/10 pb-8 md:pb-4">
                 <form 
                     onSubmit={(e) => { e.preventDefault(); handleSend(); }}
@@ -218,7 +213,6 @@ export const ChatModal = ({ user, onClose }) => {
                     </button>
                 </form>
             </div>
-
         </div>
       ) : (
         <div className="hidden md:flex flex-[2] flex-col items-center justify-center bg-[#080808] opacity-50">
