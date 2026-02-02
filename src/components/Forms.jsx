@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, Camera, MapPin, Loader2, Check, User, Briefcase, IndianRupee, 
   RefreshCw, LogOut, Cloud, Moon, Sun, Wine, Heart, 
-  Clock, Home, Zap, ChevronLeft, Sparkles, Star,
-  Building, Calendar, Phone, Users, ArrowRight, Save, Image as ImageIcon, ShieldCheck, Mail
+  Clock, Home, ChevronLeft, Star,
+  Building, ArrowRight, Save, Image as ImageIcon, ShieldCheck, Mail, AlertTriangle
 } from 'lucide-react';
 import { saveProfile, deleteMyProfile } from '../services/profileService';
 import { compressImage, getCityFromCoordinates } from '../services/utils';
@@ -68,7 +68,7 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
     // Identity (Locked for existing users)
     name: "", 
     age: "", 
-    gender: "Male", // Default
+    gender: "Male",
     
     // Mutable Details
     occupation: "", 
@@ -107,7 +107,6 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
 
   const lastSavedRef = useRef(formData);
 
-  // Check if this is an existing user (to lock fields)
   const isExistingUser = useMemo(() => {
       return existingData && existingData.name && existingData.name.length > 0;
   }, [existingData]);
@@ -122,7 +121,6 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
             tags: existingData.tags || [],
             images: existingData.images || [],
             roomImages: existingData.roomImages || [],
-            // Ensure Name is loaded correctly
             name: existingData.name || "",
             bio: existingData.bio || "",
             userRole: existingData.userRole || "hunter"
@@ -240,27 +238,39 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
     }, (err) => { showToast("Enable location services"); setLocating(false); });
   };
 
-  const handleLogout = async () => { try { await signOut(auth); onCancel(); } catch (e) {} };
+  const handleLogout = async () => { 
+    try { 
+        await signOut(auth); 
+        // Force close logic - bypasses validation in App.jsx because user is null
+        window.location.reload(); 
+    } catch (e) {
+        console.error(e);
+    } 
+  };
+
   const handleDeleteAccount = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return; }
     try {
       await deleteMyProfile(user.uid);
       await deleteUser(auth.currentUser);
-      onCancel();
+      window.location.reload();
     } catch (e) { showToast("Re-login required"); }
   };
 
   const isLastStep = currentStep === STEPS.length - 1;
 
+  // --- RENDER ---
   return (
+    // FIX 1: h-[100dvh] ensures perfect height on mobile browsers (Safari/Chrome)
+    // FIX 2: Flex Column layout creates rigid Header/Body/Footer structure
     <motion.div 
       initial={{ opacity: 0, scale: 0.95 }} 
       animate={{ opacity: 1, scale: 1 }} 
       exit={{ opacity: 0, scale: 0.95 }} 
-      className="fixed inset-0 z-[100] bg-[#050505] text-white flex flex-col font-sans border-r border-white/10 shadow-2xl md:max-w-xl w-full"
+      className="fixed inset-0 z-[100] bg-[#050505] text-white flex flex-col font-sans md:max-w-xl w-full mx-auto md:border-x md:border-white/10 shadow-2xl h-[100dvh]" 
     >
-      {/* --- WIZARD HEADER --- */}
-      <div className="px-6 pt-6 pb-4 bg-black/80 backdrop-blur-xl border-b border-white/5 sticky top-0 z-20">
+      {/* --- 1. FIXED HEADER --- */}
+      <div className="flex-none px-6 py-4 bg-black/90 backdrop-blur-xl border-b border-white/5 sticky top-0 z-50">
         <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
                 {currentStep > 0 ? (
@@ -286,13 +296,8 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
                     </div>
                 </div>
             </div>
-
-            {/* QUICK ACTIONS (Logout / Delete) - Always Accessible */}
-            <div className="flex gap-2">
-                <button onClick={handleLogout} className="p-2 bg-white/5 rounded-full hover:bg-red-500/20 text-slate-400 hover:text-red-500 transition-colors">
-                    <LogOut size={18}/>
-                </button>
-            </div>
+            
+            {/* Removed Sign Out from Header - Moved to Footer in Step 4 */}
         </div>
 
         {/* Progress Bar */}
@@ -306,20 +311,17 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
         </div>
       </div>
 
-      {/* --- FORM BODY --- */}
-      <div className="flex-1 overflow-y-auto p-5 md:p-8 pb-32 scrollbar-hide">
+      {/* --- 2. SCROLLABLE BODY --- */}
+      {/* FIX 3: overflow-y-auto enables scrolling ONLY in this middle section */}
+      <div className="flex-1 overflow-y-auto p-5 md:p-8 space-y-8 scrollbar-hide pb-32">
         
-        {/* STEP 1: IDENTITY (Locked for Existing Users) */}
+        {/* STEP 1: IDENTITY */}
         {currentStep === 0 && (
             <div className="space-y-8 animate-in slide-in-from-right-4 fade-in duration-300">
-                
-                {/* 1.1 Read-Only Identity Card (If Existing User) */}
                 {isExistingUser ? (
-                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-[2rem] border border-white/10 relative overflow-hidden">
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-[2rem] border border-white/10 relative overflow-hidden shadow-2xl">
                         <div className="absolute top-0 right-0 p-4 opacity-10"><User size={100}/></div>
-                        
                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Identity Verified</h3>
-                        
                         <div className="space-y-4 relative z-10">
                             <div>
                                 <label className="text-[10px] font-bold text-slate-500 uppercase">Name</label>
@@ -335,22 +337,9 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
                                     <p className="text-lg font-bold text-white">{formData.gender || "Not Set"}</p>
                                 </div>
                             </div>
-                            <div>
-                                <label className="text-[10px] font-bold text-slate-500 uppercase">Contact</label>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <ShieldCheck size={14} className="text-emerald-400"/>
-                                    <span className="text-sm font-medium text-emerald-400">{formData.phoneNumber}</span>
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <Mail size={14} className="text-blue-400"/>
-                                    <span className="text-sm font-medium text-blue-400">{formData.email || user.email}</span>
-                                </div>
-                            </div>
                         </div>
-                        <p className="text-[10px] text-slate-500 mt-6 italic">Identity details are locked for safety. Contact support to change.</p>
                     </div>
                 ) : (
-                    // 1.2 Editable Form (New Users Only)
                     <>
                         <SectionHeader icon={<User size={16}/>} title="Identity Setup" desc="Once saved, this cannot be changed." />
                         <InputBox label="Full Name" helper="Real Name Only" value={formData.name} onChange={v => setFormData({...formData, name: v})} placeholder="e.g. Vikram Singh" />
@@ -358,8 +347,6 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
                             <InputBox label="Age" type="number" value={formData.age} onChange={v => setFormData({...formData, age: v})} placeholder="24" />
                             <SelectionGroup label="Gender" options={[{value: 'Male'}, {value: 'Female'}, {value: 'Other'}]} selected={formData.gender} onSelect={v => setFormData({...formData, gender: v})} />
                         </div>
-                        
-                        {/* Phone Verification (Only needed for new users) */}
                         <div className="pt-4">
                             <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block ml-4">Phone Number</label>
                             {formData.isPhoneVerified ? (
@@ -380,16 +367,15 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
                     </>
                 )}
 
-                {/* 1.3 Role Selection (Mutable) */}
                 <section className="pt-6 border-t border-white/10">
                     <label className="text-xs font-bold text-slate-500 uppercase mb-4 block tracking-wide">Current Status</label>
                     <div className="grid grid-cols-2 gap-4">
-                        <button onClick={() => setFormData({...formData, userRole: 'host'})} className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${formData.userRole === 'host' ? 'bg-pink-600 border-pink-500 text-white' : 'bg-white/5 border-white/10 text-slate-400'}`}>
-                            <Home size={20}/>
+                        <button onClick={() => setFormData({...formData, userRole: 'host'})} className={`p-4 rounded-3xl border flex flex-col items-center gap-2 transition-all active:scale-95 ${formData.userRole === 'host' ? 'bg-pink-600 border-pink-500 text-white shadow-lg shadow-pink-500/20' : 'bg-white/5 border-white/10 text-slate-400'}`}>
+                            <Home size={24}/>
                             <span className="font-bold text-xs">Have Room</span>
                         </button>
-                        <button onClick={() => setFormData({...formData, userRole: 'hunter'})} className={`p-4 rounded-2xl border flex flex-col items-center gap-2 transition-all ${formData.userRole === 'hunter' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-white/5 border-white/10 text-slate-400'}`}>
-                            <User size={20}/>
+                        <button onClick={() => setFormData({...formData, userRole: 'hunter'})} className={`p-4 rounded-3xl border flex flex-col items-center gap-2 transition-all active:scale-95 ${formData.userRole === 'hunter' ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'bg-white/5 border-white/10 text-slate-400'}`}>
+                            <User size={24}/>
                             <span className="font-bold text-xs">Need Room</span>
                         </button>
                     </div>
@@ -397,12 +383,11 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
             </div>
         )}
 
-        {/* STEP 2: DETAILS (Mutable) */}
+        {/* STEP 2: DETAILS */}
         {currentStep === 1 && (
             <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300">
                 <InputBox label="Occupation" icon={<Briefcase size={14}/>} value={formData.occupation} onChange={v => setFormData({...formData, occupation: v})} placeholder="Student / Job" />
                 
-                {/* Location Picker */}
                 <div className="bg-white/5 p-4 rounded-3xl border border-white/10 flex justify-between items-center">
                     <div className="flex items-center gap-4">
                         <div className="p-3 bg-black/20 rounded-2xl"><MapPin size={18} className="text-emerald-400"/></div>
@@ -426,15 +411,15 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
                         <div className="pt-4 border-t border-white/10">
                             <SectionHeader icon={<ImageIcon size={16}/>} title="Room Photos" desc="Max 3 photos" />
                             <div className="flex gap-3 overflow-x-auto pb-2 snap-x">
-                                <label className="flex-shrink-0 w-24 h-24 bg-white/5 border-dashed border-2 border-white/10 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500/50">
+                                <label className="flex-shrink-0 w-24 h-24 bg-white/5 border-dashed border-2 border-white/10 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-emerald-500/50 transition-colors">
                                     {roomPhotoLoading ? <Loader2 className="animate-spin text-emerald-500"/> : <Camera size={20} className="text-slate-500"/>}
                                     <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleGenericUpload(e, 'roomImages', 3, setRoomPhotoLoading)} />
                                 </label>
                                 <AnimatePresence>
                                     {formData.roomImages.map((img, i) => (
-                                    <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} key={i} className="relative w-24 h-24 flex-shrink-0 rounded-2xl overflow-hidden bg-black">
+                                    <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} key={i} className="relative w-24 h-24 flex-shrink-0 rounded-2xl overflow-hidden bg-black shadow-lg">
                                         <img src={img} className="w-full h-full object-cover" />
-                                        <button onClick={() => removeGenericImage(i, 'roomImages')} className="absolute top-1 right-1 bg-black/60 p-1 rounded-full text-white"><X size={10}/></button>
+                                        <button onClick={() => removeGenericImage(i, 'roomImages')} className="absolute top-1 right-1 bg-black/60 p-1 rounded-full text-white hover:bg-red-500/80 transition-colors"><X size={10}/></button>
                                     </motion.div>
                                     ))}
                                 </AnimatePresence>
@@ -455,19 +440,19 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
 
         {/* STEP 3: PHOTOS & BIO */}
         {currentStep === 2 && (
-            <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300">
+            <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300 pb-8">
                 <SectionHeader icon={<Camera size={16}/>} title="My Photos" desc="At least 2 photos required" />
                 <div className="grid grid-cols-3 gap-3">
-                    <label className="aspect-[3/4] bg-white/5 border-dashed border-2 border-white/10 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-pink-500/50">
+                    <label className="aspect-[3/4] bg-white/5 border-dashed border-2 border-white/10 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-pink-500/50 transition-colors">
                         {photoLoading ? <Loader2 className="animate-spin text-pink-500"/> : <Camera size={24} className="text-slate-500"/>}
                         <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleGenericUpload(e, 'images', 5, setPhotoLoading)} />
                     </label>
                     <AnimatePresence>
                         {formData.images.map((img, i) => (
-                        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} key={i} className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-black border border-white/10">
+                        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} key={i} className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-black border border-white/10 shadow-lg">
                             <img src={img} className="w-full h-full object-cover" />
                             {i === 0 && <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-white/20 backdrop-blur-md rounded text-[9px] font-bold flex items-center gap-1"><Star size={8} className="text-yellow-400 fill-yellow-400"/> Cover</div>}
-                            <button onClick={() => removeGenericImage(i, 'images')} className="absolute top-1 right-1 bg-black/60 p-1.5 rounded-full text-white"><X size={10}/></button>
+                            <button onClick={() => removeGenericImage(i, 'images')} className="absolute top-1 right-1 bg-black/60 p-1.5 rounded-full text-white hover:bg-red-500/80 transition-colors"><X size={10}/></button>
                         </motion.div>
                         ))}
                     </AnimatePresence>
@@ -476,7 +461,7 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
                     <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block ml-4">Bio</label>
                     <textarea 
                         placeholder="I'm a chill person looking for..." 
-                        className="w-full bg-white/5 border border-white/10 rounded-3xl p-4 text-sm font-medium text-white outline-none focus:border-pink-500/50 min-h-[100px] resize-none"
+                        className="w-full bg-white/5 border border-white/10 rounded-3xl p-4 text-sm font-medium text-white outline-none focus:border-pink-500/50 min-h-[120px] resize-none focus:bg-white/10 transition-colors"
                         value={formData.bio || ""} 
                         onChange={e => setFormData({...formData, bio: e.target.value})} 
                     />
@@ -484,9 +469,9 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
             </div>
         )}
 
-        {/* STEP 4: LIFESTYLE */}
+        {/* STEP 4: LIFESTYLE & SETTINGS */}
         {currentStep === 3 && (
-            <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300">
+            <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300 pb-20">
                 <SelectionGroup label="Cleanliness" options={DETAILED_PREFS.cleanliness} selected={formData.cleanliness} onSelect={v => setFormData({...formData, cleanliness: v})} />
                 <SelectionGroup label="Guest Policy" options={DETAILED_PREFS.guests} selected={formData.guestPolicy} onSelect={v => setFormData({...formData, guestPolicy: v})} />
                 
@@ -498,27 +483,36 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
                                 const currentTags = formData.tags || [];
                                 const newTags = isActive ? currentTags.filter(t => t !== tag.label) : [...currentTags, tag.label];
                                 setFormData({...formData, tags: newTags});
-                            }} className={`px-4 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all ${isActive ? 'bg-pink-600 border-pink-500 text-white' : 'bg-white/5 border-white/10 text-slate-400'}`}>
+                            }} className={`px-4 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all ${isActive ? 'bg-pink-600 border-pink-500 text-white shadow-lg shadow-pink-500/20' : 'bg-white/5 border-white/10 text-slate-400'}`}>
                                 {tag.icon} {tag.label}
                             </button>
                         );
                     })}
                 </div>
 
-                {/* DANGER ZONE (Delete Account) */}
-                <div className="pt-12 mt-8 border-t border-white/5 text-center">
-                    <button onClick={handleDeleteAccount} className="text-[10px] font-bold text-red-500/50 hover:text-red-500 uppercase tracking-widest transition-colors">
-                        {confirmDelete ? "Tap again to confirm deletion" : "Delete Account"}
-                    </button>
+                {/* ✅ FIX 4: "Settings / Danger Zone" Section at Bottom */}
+                <div className="pt-8 mt-8 border-t border-white/5 flex flex-col gap-4">
+                    <div className="bg-white/5 rounded-2xl p-4 flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400">Account Options</span>
+                        <div className="flex gap-4">
+                            <button onClick={handleLogout} className="text-xs font-bold text-white hover:text-slate-300 transition-colors flex items-center gap-2">
+                                <LogOut size={14} /> Sign Out
+                            </button>
+                            <div className="w-[1px] h-4 bg-white/10"></div>
+                            <button onClick={handleDeleteAccount} className="text-xs font-bold text-red-500 hover:text-red-400 transition-colors">
+                                {confirmDelete ? "Confirm?" : "Delete"}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         )}
 
       </div>
 
-      {/* --- WIZARD FOOTER --- */}
-      <div className="p-6 bg-[#050505] border-t border-white/10 flex justify-between items-center z-50">
-        <button onClick={isLastStep ? handleSaveAndClose : handleNext} className="w-full py-4 bg-white text-black rounded-full font-black text-sm hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-lg shadow-white/10">
+      {/* --- 3. FIXED FOOTER --- */}
+      <div className="flex-none p-6 bg-[#050505] border-t border-white/10 flex justify-between items-center z-50 pb-8 md:pb-6">
+        <button onClick={isLastStep ? handleSaveAndClose : handleNext} className="w-full py-4 bg-white text-black rounded-full font-black text-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 shadow-xl shadow-white/10">
             {isLastStep ? <>FINISH & SAVE <Save size={18}/></> : <>NEXT STEP <ArrowRight size={18}/></>}
         </button>
       </div>
@@ -526,8 +520,9 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
   );
 };
 
-// --- HELPER COMPONENTS ---
-const SectionHeader = ({ icon, title, desc }) => (
+// --- HELPER COMPONENTS (Memoized) ---
+// FIX 5: Performance Optimization - Prevents lag when typing
+const SectionHeader = memo(({ icon, title, desc }) => (
     <div className="mb-5">
         <div className="flex items-center gap-2 mb-1">
             <div className="p-1.5 bg-gradient-to-br from-pink-500 to-purple-600 rounded-lg text-white shadow-lg shadow-pink-500/20">{icon}</div>
@@ -535,9 +530,9 @@ const SectionHeader = ({ icon, title, desc }) => (
         </div>
         {desc && <p className="text-[10px] font-medium text-slate-500 ml-9">{desc}</p>}
     </div>
-);
+));
 
-const InputBox = ({ label, helper, icon, value, onChange, type="text", placeholder }) => (
+const InputBox = memo(({ label, helper, icon, value, onChange, type="text", placeholder }) => (
     <div className="relative group">
         <div className="flex justify-between items-baseline mb-1 ml-4">
              <label className="text-[10px] font-bold text-slate-500 uppercase group-focus-within:text-pink-500 transition-colors">{label}</label>
@@ -554,9 +549,9 @@ const InputBox = ({ label, helper, icon, value, onChange, type="text", placehold
             />
         </div>
     </div>
-);
+));
 
-const SelectionGroup = ({ label, options, selected, onSelect }) => (
+const SelectionGroup = memo(({ label, options, selected, onSelect }) => (
     <div className="bg-white/5 p-5 rounded-3xl border border-white/10">
         <p className="text-xs font-bold text-slate-400 uppercase mb-4 tracking-wide">{label}</p>
         <div className="grid grid-cols-3 gap-2">
@@ -567,7 +562,7 @@ const SelectionGroup = ({ label, options, selected, onSelect }) => (
                     key={opt.value} 
                     type="button"
                     onClick={() => onSelect(opt.value)}
-                    className={`py-3 px-1 rounded-2xl border text-center transition-all flex flex-col items-center justify-center gap-1 ${isActive ? 'bg-white text-black border-white shadow-lg scale-105' : 'bg-black/20 border-white/5 text-slate-400 hover:bg-white/5'}`}
+                    className={`py-3 px-1 rounded-2xl border text-center transition-all flex flex-col items-center justify-center gap-1 active:scale-95 ${isActive ? 'bg-white text-black border-white shadow-lg scale-105' : 'bg-black/20 border-white/5 text-slate-400 hover:bg-white/5'}`}
                     >
                         {opt.icon && <div className="mb-1">{opt.icon}</div>}
                         <span className="text-[11px] font-black block">{opt.value}</span>
@@ -577,4 +572,4 @@ const SelectionGroup = ({ label, options, selected, onSelect }) => (
             })}
         </div>
     </div>
-);
+));

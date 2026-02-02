@@ -8,7 +8,7 @@ import { triggerHaptic } from './services/utils';
 import { swipeRight, swipeLeft } from './services/interactionService';
 import { getNearbyUsers, injectSmartAds } from './services/feedService';
 import { fetchMatches } from './services/chatService'; 
-import { MessageCircle, User, Loader2, Minus, Plus, MapPin, Sparkles } from 'lucide-react';
+import { MessageCircle, User, Loader2, Minus, Plus, MapPin, Sparkles, X, Heart, Radar } from 'lucide-react';
 
 // --- LAZY LOAD COMPONENTS ---
 const Card = lazy(() => import('./components/Cards').then(m => ({ default: m.Card })));
@@ -18,27 +18,9 @@ const MatchPopup = lazy(() => import('./components/Modals').then(m => ({ default
 const DetailModal = lazy(() => import('./components/Modals').then(m => ({ default: m.DetailModal })));
 const ReportModal = lazy(() => import('./components/Modals').then(m => ({ default: m.ReportModal })));
 
-// --- ANIMATION ---
-const DoodleSearchAnim = () => {
-  return (
-    <div className="relative w-64 h-64 mx-auto mb-2 flex items-center justify-center">
-      <svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" className="opacity-80">
-        <motion.path d="M20 150 L180 150" stroke="white" strokeWidth="4" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1 }} />
-        <motion.path d="M30 150 L30 170 M170 150 L170 170" stroke="white" strokeWidth="4" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1, delay: 0.2 }} />
-        <motion.path d="M90 150 Q70 150 70 110 Q70 80 100 80" stroke="#6366f1" strokeWidth="4" strokeLinecap="round" fill="transparent" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.5, delay: 0.5 }} />
-        <motion.circle cx="100" cy="65" r="15" stroke="#6366f1" strokeWidth="4" initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", delay: 1 }} />
-        <motion.path d="M90 150 L130 150 L130 175" stroke="#6366f1" strokeWidth="4" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1, delay: 0.8 }} />
-        <motion.path d="M85 100 Q110 110 120 90" stroke="#6366f1" strokeWidth="4" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1, delay: 1.2 }} />
-        <motion.rect x="115" y="70" width="15" height="25" rx="2" stroke="white" strokeWidth="2" fill="#000" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5 }} />
-        <motion.path d="M135 75 Q145 82 135 90" stroke="#ec4899" strokeWidth="3" strokeLinecap="round" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 1.5, repeat: Infinity, delay: 1.8 }} />
-        <motion.path d="M140 70 Q155 82 140 95" stroke="#ec4899" strokeWidth="3" strokeLinecap="round" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 1.5, repeat: Infinity, delay: 2.0 }} />
-      </svg>
-    </div>
-  );
-};
-
 export default function App() {
   const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [myProfile, setMyProfile] = useState(null);
   const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(true); 
@@ -54,6 +36,9 @@ export default function App() {
   
   const swipedIdsRef = useRef(new Set()); 
   const initialFetchDone = useRef(false);
+  
+  // ✅ FIX 1: Add a Ref to track if we are currently fetching to prevent double-calls
+  const isFetchingRef = useRef(false);
 
   const isProfileComplete = myProfile && myProfile.name && (myProfile.images?.length > 0 || myProfile.roomImages?.length > 0);
 
@@ -62,7 +47,6 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         try {
-            // Check Database FIRST
             const docRef = doc(db, "users", currentUser.uid);
             const docSnap = await getDoc(docRef);
 
@@ -90,7 +74,8 @@ export default function App() {
         setMyProfile(null);
       }
       setProfileCheckComplete(true); 
-      setLoading(false); 
+      setLoading(false);
+      setTimeout(() => setAuthLoading(false), 800); 
     });
     return () => unsubscribe();
   }, []);
@@ -125,16 +110,21 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // --- 4. FEED LOGIC (With Strict Filtering) ---
+  // --- 4. FEED LOGIC (With Duplicate Protection) ---
   useEffect(() => {
     const fetchFeed = async () => {
+      // Safety Checks
       if (loading || !user || !isProfileComplete || !myProfile?.lat || activeTab === 'profile') {
         return;
       }
 
+      // ✅ FIX 2: Check the Lock. If already fetching, STOP.
+      if (isFetchingRef.current) return;
+
       if (people.length < 2) { 
+        isFetchingRef.current = true; // 🔒 LOCK
+
         try {
-          // Pass User Role to Filter Competitors
           const nearby = await getNearbyUsers(
             user, 
             {lat: myProfile.lat, lng: myProfile.lng}, 
@@ -143,17 +133,27 @@ export default function App() {
             []
           );
           
-          const uniquePeople = nearby.filter(p => {
-             const isDuplicate = people.some(existing => existing.id === p.id);
-             return !isDuplicate && !swipedIdsRef.current.has(p.id);
-          });
+          // Initial filter against Swiped IDs
+          const notSwipedPeople = nearby.filter(p => !swipedIdsRef.current.has(p.id));
 
-          const feedWithAds = injectSmartAds(uniquePeople, myProfile);
+          const feedWithAds = injectSmartAds(notSwipedPeople, myProfile);
 
           if (feedWithAds.length > 0) {
-              setPeople(prev => [...prev, ...feedWithAds]);
+              setPeople(prev => {
+                  // ✅ FIX 3: STRICT DEDUPLICATION
+                  // Compare incoming items against the *current* state (prev).
+                  // Only add items that are NOT already in the list.
+                  const uniqueNewItems = feedWithAds.filter(newItem => 
+                      !prev.some(existingItem => existingItem.id === newItem.id)
+                  );
+                  return [...prev, ...uniqueNewItems];
+              });
           }
-        } catch (e) { console.error("Feed Error", e); }
+        } catch (e) { 
+            console.error("Feed Error", e); 
+        } finally {
+            isFetchingRef.current = false; // 🔓 UNLOCK
+        }
         initialFetchDone.current = true;
       }
     };
@@ -163,6 +163,12 @@ export default function App() {
   // --- ACTIONS ---
   const handleIncreaseRadius = () => setSearchRadius(prev => prev >= 500 ? 500 : (prev >= 200 ? 500 : (prev >= 100 ? 200 : 100)));
   const handleDecreaseRadius = () => setSearchRadius(prev => prev <= 50 ? 50 : (prev <= 100 ? 50 : (prev <= 200 ? 100 : 200)));
+
+  const handleSwipeButton = async (direction) => {
+    if (people.length === 0) return;
+    const item = people[people.length - 1]; 
+    await onSwipe(direction, item);
+  };
 
   const onSwipe = async (direction, item) => {
     swipedIdsRef.current.add(item.id);
@@ -183,25 +189,42 @@ export default function App() {
   const handleCardLeftScreen = (id) => setPeople(prev => prev.filter(p => p.id !== id));
   const handleLogin = async () => { try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); } };
 
-  // --- RENDER ---
-  if (loading || !profileCheckComplete) return (
+  // --- RENDER: SPLASH SCREEN ---
+  if (authLoading) return (
     <div className="h-screen bg-[#050505] flex items-center justify-center relative overflow-hidden">
-      <div className="flex flex-col items-center gap-4 z-10">
-        <Loader2 className="text-pink-500 animate-spin" size={48} />
-        <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.2em] animate-pulse">Retrieving Profile...</p>
-      </div>
+        <motion.div 
+            initial={{ opacity: 0, scale: 0.8 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            transition={{ duration: 0.5 }}
+            className="flex flex-col items-center gap-4 z-10"
+        >
+            <div className="w-20 h-20 bg-gradient-to-tr from-pink-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-pink-500/20">
+                <Sparkles className="text-white w-10 h-10 animate-pulse" />
+            </div>
+            <h1 className="text-2xl font-black italic tracking-tighter text-white">ROOMIE<span className="text-pink-500">SWIPE</span></h1>
+        </motion.div>
     </div>
   );
 
+  // --- RENDER: LOGIN OR APP ---
   if (!user) return <LandingPage onLogin={handleLogin} />;
+  
+  if (loading || !profileCheckComplete) return (
+    <div className="h-screen bg-[#050505] flex items-center justify-center">
+      <Loader2 className="text-pink-500 animate-spin" size={32} />
+    </div>
+  );
 
   return (
     <div className="h-screen bg-[#080808] text-white overflow-hidden flex flex-col relative font-sans">
+      
+      {/* Dynamic Background */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         <motion.div animate={{ x: [0, 100, 0], y: [0, -50, 0], scale: [1, 1.2, 1] }} transition={{ duration: 15, repeat: Infinity, ease: "linear" }} className="absolute -top-[10%] -right-[10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px]" />
         <motion.div animate={{ x: [0, -100, 0], y: [0, 100, 0], scale: [1, 1.4, 1] }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute top-[20%] -left-[20%] w-[500px] h-[500px] bg-pink-600/10 rounded-full blur-[100px]" />
       </div>
 
+      {/* Navbar */}
       <header className="px-6 py-5 z-50 flex justify-between items-center relative">
         <div className="absolute inset-0 bg-gradient-to-b from-black/90 via-black/50 to-transparent pointer-events-none"></div>
         <div className="flex items-center gap-2 z-50">
@@ -228,7 +251,9 @@ export default function App() {
         </button>
       </header>
 
+      {/* Main Swipe Area */}
       <div className="flex-1 relative flex justify-center items-center p-4 z-10">
+        
         <Suspense fallback={<div className="flex justify-center"><Loader2 className="animate-spin text-pink-500"/></div>}>
           {!isProfileComplete ? (
              <div className="flex flex-col items-center justify-center text-center max-w-sm">
@@ -236,8 +261,13 @@ export default function App() {
                     <User size={48} className="text-slate-500"/>
                 </div>
                 <h2 className="text-2xl font-black italic text-white mb-2">Complete Your Profile</h2>
-                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-8">You need a name and photo to start swiping.</p>
-                <button onClick={() => setActiveTab('profile')} className="px-8 py-3 bg-white text-black rounded-full font-black text-xs hover:scale-105 transition-all flex items-center gap-2">
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-8">
+                    You need a name and photo to start swiping.
+                </p>
+                <button 
+                  onClick={() => setActiveTab('profile')}
+                  className="px-8 py-3 bg-white text-black rounded-full font-black text-xs hover:scale-105 transition-all flex items-center gap-2"
+                >
                     <Sparkles size={14}/> SETUP NOW
                 </button>
              </div>
@@ -248,12 +278,19 @@ export default function App() {
                   <Card key={person.id} person={person} myProfile={myProfile} onSwipe={onSwipe} onCardLeftScreen={handleCardLeftScreen} onInfo={setSelectedPerson} onReport={setReportingPerson} />
                 ))}
               </AnimatePresence>
+
+              {/* EMPTY STATE */}
               {people.length === 0 && !loading && (
                 <div className="flex flex-col items-center justify-center text-center z-0 w-full max-w-sm">
-                  <DoodleSearchAnim />
-                  <div className="space-y-2 mt-4 mb-8 relative z-10">
+                  <div className="w-32 h-32 mb-6 flex items-center justify-center relative">
+                    <div className="absolute inset-0 bg-pink-500/20 rounded-full animate-ping opacity-20"></div>
+                    <Radar size={64} className="text-pink-500/80" />
+                  </div>
+                  <div className="space-y-2 mb-8 relative z-10">
                       <h2 className="text-2xl font-black italic text-white tracking-tight">Scanning Area...</h2>
-                      <p className="text-slate-400 text-xs font-bold uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">We've looked everywhere within {searchRadius}km.</p>
+                      <p className="text-slate-400 text-xs font-bold uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">
+                        We've looked everywhere within {searchRadius}km.
+                      </p>
                   </div>
                   <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 rounded-2xl backdrop-blur-md shadow-xl">
                       <button onClick={handleDecreaseRadius} disabled={searchRadius <= 50} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30"><Minus size={16} className="text-slate-300"/></button>
@@ -270,24 +307,50 @@ export default function App() {
         </Suspense>
       </div>
 
+      {/* Floating Action Buttons */}
+      {isProfileComplete && people.length > 0 && activeTab === 'swipe' && !selectedPerson && (
+        <div className="absolute bottom-6 left-0 right-0 z-40 flex justify-center items-center gap-6 pointer-events-auto">
+            <button 
+                onClick={() => handleSwipeButton('left')}
+                className="w-14 h-14 rounded-full bg-[#1a1a1a] border border-white/10 flex items-center justify-center shadow-2xl active:scale-90 transition-all hover:bg-red-500/20 group"
+            >
+                <X size={28} className="text-red-500 group-hover:scale-110 transition-transform" />
+            </button>
+            <button 
+                onClick={() => handleSwipeButton('right')}
+                className="w-14 h-14 rounded-full bg-[#1a1a1a] border border-white/10 flex items-center justify-center shadow-2xl active:scale-90 transition-all hover:bg-emerald-500/20 group"
+            >
+                <Heart size={28} className="text-emerald-500 fill-current group-hover:scale-110 transition-transform" />
+            </button>
+        </div>
+      )}
+
+      {/* Modals Layer */}
       <AnimatePresence>
         <Suspense fallback={<div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center"><Loader2 className="animate-spin text-pink-500" size={32}/></div>}>
           
-          {/* Profile Form (Edit/Create) */}
           {(activeTab === 'profile' || showProfileForm) && (
-             <CreateProfileForm user={user} existingData={myProfile} onCancel={() => { if (isProfileComplete) { setActiveTab('swipe'); setShowProfileForm(false); } else { alert("Please add a Name and Photo to continue."); } }} showToast={(msg) => alert(msg)} />
+             <CreateProfileForm 
+               user={user} 
+               existingData={myProfile} 
+               onCancel={() => { 
+                  if (isProfileComplete) {
+                     setActiveTab('swipe'); 
+                     setShowProfileForm(false); 
+                  } else {
+                     alert("Please add a Name and Photo to continue.");
+                  }
+               }} 
+               showToast={(msg) => alert(msg)} 
+             />
           )}
           
-          {/* Chat List */}
           {activeTab === 'chat' && <ChatModal user={user} onClose={() => setActiveTab('swipe')} />}
           
-          {/* Detail View */}
           {selectedPerson && <DetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />}
           
-          {/* Report Dialog */}
           {reportingPerson && <ReportModal person={reportingPerson} onConfirm={() => setReportingPerson(null)} onCancel={() => setReportingPerson(null)} />}
           
-          {/* Match Celebration */}
           {matchData && (
             <MatchPopup 
               person={matchData} 
