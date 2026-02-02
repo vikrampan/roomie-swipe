@@ -1,4 +1,4 @@
-import { Truck, Armchair, Wifi, Zap, Star } from 'lucide-react';
+import { Truck, Armchair, Wifi, Zap, Star, Utensils, ShoppingBag, Home } from 'lucide-react';
 
 export const AD_INVENTORY = {
   // 1. HIGH TICKET (Furniture)
@@ -9,7 +9,7 @@ export const AD_INVENTORY = {
     title: "Upgrade Your Vibe",
     desc: "Get the UNLMTD furniture package. Zero cost EMI.",
     link: "https://www.furlenco.com/", 
-    Icon: Armchair, // Pass Component Name (No < >)
+    Icon: Armchair, 
     iconColor: "text-yellow-400",
     cta: "View Packages"
   },
@@ -62,5 +62,46 @@ export const AD_INVENTORY = {
     Icon: Zap,
     iconColor: "text-yellow-400",
     cta: "Book Cleaning"
+  },
+
+  // --- NEW ADS ADDED BELOW ---
+
+  // 5. FOOD (Bachelor Life)
+  foodDelivery: {
+    id: "ad_swiggy",
+    name: "Swiggy",
+    img: "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=400&q=80",
+    title: "Hungry?",
+    desc: "Get 50% off your first order. No cooking today!",
+    link: "https://www.swiggy.com/",
+    Icon: Utensils,
+    iconColor: "text-orange-500",
+    cta: "Order Now"
+  },
+
+  // 6. GROCERY (Quick Commerce)
+  quickGrocery: {
+    id: "ad_blinkit",
+    name: "Blinkit",
+    img: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=400&q=80",
+    title: "Groceries in 10m",
+    desc: "Forgot to buy milk? We've got you covered.",
+    link: "https://blinkit.com/",
+    Icon: ShoppingBag,
+    iconColor: "text-green-500",
+    cta: "Shop Now"
+  },
+
+  // 7. CO-LIVING (Competitor/Alternative)
+  coliving: {
+    id: "ad_zolo",
+    name: "Zolo Stays",
+    img: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=400&q=80",
+    title: "Hassle Free Stay",
+    desc: "Fully managed rooms with food & housekeeping.",
+    link: "https://zolostays.com/",
+    Icon: Home,
+    iconColor: "text-indigo-400",
+    cta: "Explore Rooms"
   }
 };

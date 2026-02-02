@@ -42,6 +42,7 @@ export default function App() {
   const [myProfile, setMyProfile] = useState(null);
   const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(true); 
+  const [profileCheckComplete, setProfileCheckComplete] = useState(false); 
   
   const [activeTab, setActiveTab] = useState('swipe');
   const [showProfileForm, setShowProfileForm] = useState(false);
@@ -54,81 +55,64 @@ export default function App() {
   const swipedIdsRef = useRef(new Set()); 
   const initialFetchDone = useRef(false);
 
-  // Helper: Check if profile is TRULY complete (Checking Firestore data, not Auth data)
   const isProfileComplete = myProfile && myProfile.name && (myProfile.images?.length > 0 || myProfile.roomImages?.length > 0);
 
-  // --- 1. CRITICAL FIX: DATA PERSISTENCE ---
+  // --- 1. AUTH & DATA PERSISTENCE ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         try {
-            // 🚀 STEP 1: Check Database FIRST
+            // Check Database FIRST
             const docRef = doc(db, "users", currentUser.uid);
             const docSnap = await getDoc(docRef);
 
             if (docSnap.exists()) {
-                // ✅ EXISTING USER ("Priya"): Use Database Data
                 const dbData = docSnap.data();
-                
                 setMyProfile({
                     id: currentUser.uid,
-                    ...dbData, // This overrides Google's "Vikram" with DB's "Priya"
+                    ...dbData, 
                     email: currentUser.email, 
-                    // Use Firestore photo if available, else Auth photo
                     photoURL: dbData.images?.[0] || currentUser.photoURL 
                 });
             } else {
-                // ❌ NEW USER: Name starts empty so they MUST type it
                 setMyProfile({
                     id: currentUser.uid,
-                    name: "", // FORCE EMPTY NAME
+                    name: "", 
                     email: currentUser.email,
                     photoURL: currentUser.photoURL,
                     isNewUser: true
                 });
             }
-        } catch (error) {
-            console.error("Error fetching profile:", error);
-        }
+        } catch (error) { console.error("Error fetching profile:", error); }
         setUser(currentUser); 
       } else {
         setUser(null);
         setMyProfile(null);
       }
+      setProfileCheckComplete(true); 
       setLoading(false); 
     });
-
     return () => unsubscribe();
   }, []);
 
-  // --- 2. REAL-TIME SYNC (Keeps 'Priya' updated if edited) ---
+  // --- 2. REAL-TIME SYNC ---
   useEffect(() => {
-    if (!user) return; 
-
+    if (!user || !profileCheckComplete) return; 
     const unsub = onSnapshot(doc(db, "users", user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        // Merge carefully: Database data overrides current state
-        setMyProfile(prev => ({ 
-            ...prev, 
-            ...data,
-            id: user.uid 
-        }));
-        
-        // Only redirect to setup if vital data is MISSING
+        setMyProfile(prev => ({ ...prev, ...data, id: user.uid }));
         if (!data.name || (!data.images?.length && !data.roomImages?.length)) {
             setActiveTab('profile'); 
         }
       }
     });
-    
     return () => unsub();
-  }, [user]);
+  }, [user, profileCheckComplete]);
 
   // --- 3. NOTIFICATION POLLER ---
   useEffect(() => {
     if (!user) return;
-    
     const checkUnread = async () => {
         try {
             const matches = await fetchMatches(user.uid);
@@ -141,18 +125,23 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // --- 4. FEED LOGIC (With Safety Checks) ---
+  // --- 4. FEED LOGIC (With Strict Filtering) ---
   useEffect(() => {
     const fetchFeed = async () => {
-      // Don't fetch if profile is broken or location missing
       if (loading || !user || !isProfileComplete || !myProfile?.lat || activeTab === 'profile') {
         return;
       }
 
-      // Fetch only if feed is running low
       if (people.length < 2) { 
         try {
-          const nearby = await getNearbyUsers(user, {lat: myProfile.lat, lng: myProfile.lng}, searchRadius, {}, []);
+          // Pass User Role to Filter Competitors
+          const nearby = await getNearbyUsers(
+            user, 
+            {lat: myProfile.lat, lng: myProfile.lng}, 
+            searchRadius, 
+            { role: myProfile.userRole }, 
+            []
+          );
           
           const uniquePeople = nearby.filter(p => {
              const isDuplicate = people.some(existing => existing.id === p.id);
@@ -164,9 +153,7 @@ export default function App() {
           if (feedWithAds.length > 0) {
               setPeople(prev => [...prev, ...feedWithAds]);
           }
-        } catch (e) {
-          console.error("Feed Error", e);
-        }
+        } catch (e) { console.error("Feed Error", e); }
         initialFetchDone.current = true;
       }
     };
@@ -181,7 +168,6 @@ export default function App() {
     swipedIdsRef.current.add(item.id);
     setPeople(prev => prev.filter(p => p.id !== item.id));
     triggerHaptic(direction === 'right' ? 'success' : 'light');
-
     if (item.isAd) return;
 
     try {
@@ -194,16 +180,11 @@ export default function App() {
     } catch (error) { console.error(error); }
   };
 
-  const handleCardLeftScreen = (id) => {
-    setPeople(prev => prev.filter(p => p.id !== id));
-  };
-
-  const handleLogin = async () => {
-    try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
-  };
+  const handleCardLeftScreen = (id) => setPeople(prev => prev.filter(p => p.id !== id));
+  const handleLogin = async () => { try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); } };
 
   // --- RENDER ---
-  if (loading) return (
+  if (loading || !profileCheckComplete) return (
     <div className="h-screen bg-[#050505] flex items-center justify-center relative overflow-hidden">
       <div className="flex flex-col items-center gap-4 z-10">
         <Loader2 className="text-pink-500 animate-spin" size={48} />
@@ -216,14 +197,11 @@ export default function App() {
 
   return (
     <div className="h-screen bg-[#080808] text-white overflow-hidden flex flex-col relative font-sans">
-      
-      {/* Dynamic Background */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         <motion.div animate={{ x: [0, 100, 0], y: [0, -50, 0], scale: [1, 1.2, 1] }} transition={{ duration: 15, repeat: Infinity, ease: "linear" }} className="absolute -top-[10%] -right-[10%] w-[600px] h-[600px] bg-indigo-600/10 rounded-full blur-[120px]" />
         <motion.div animate={{ x: [0, -100, 0], y: [0, 100, 0], scale: [1, 1.4, 1] }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute top-[20%] -left-[20%] w-[500px] h-[500px] bg-pink-600/10 rounded-full blur-[100px]" />
       </div>
 
-      {/* Navbar */}
       <header className="px-6 py-5 z-50 flex justify-between items-center relative">
         <div className="absolute inset-0 bg-gradient-to-b from-black/90 via-black/50 to-transparent pointer-events-none"></div>
         <div className="flex items-center gap-2 z-50">
@@ -250,43 +228,32 @@ export default function App() {
         </button>
       </header>
 
-      {/* Main Swipe Area */}
       <div className="flex-1 relative flex justify-center items-center p-4 z-10">
         <Suspense fallback={<div className="flex justify-center"><Loader2 className="animate-spin text-pink-500"/></div>}>
           {!isProfileComplete ? (
-             // Onboarding Screen
              <div className="flex flex-col items-center justify-center text-center max-w-sm">
                 <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6 animate-pulse">
                     <User size={48} className="text-slate-500"/>
                 </div>
                 <h2 className="text-2xl font-black italic text-white mb-2">Complete Your Profile</h2>
-                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-8">
-                    You need a name and photo to start swiping.
-                </p>
-                <button 
-                  onClick={() => setActiveTab('profile')}
-                  className="px-8 py-3 bg-white text-black rounded-full font-black text-xs hover:scale-105 transition-all flex items-center gap-2"
-                >
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-8">You need a name and photo to start swiping.</p>
+                <button onClick={() => setActiveTab('profile')} className="px-8 py-3 bg-white text-black rounded-full font-black text-xs hover:scale-105 transition-all flex items-center gap-2">
                     <Sparkles size={14}/> SETUP NOW
                 </button>
              </div>
           ) : (
-             // Swipe Stack
              <>
               <AnimatePresence>
                 {people.map((person) => (
                   <Card key={person.id} person={person} myProfile={myProfile} onSwipe={onSwipe} onCardLeftScreen={handleCardLeftScreen} onInfo={setSelectedPerson} onReport={setReportingPerson} />
                 ))}
               </AnimatePresence>
-
               {people.length === 0 && !loading && (
                 <div className="flex flex-col items-center justify-center text-center z-0 w-full max-w-sm">
                   <DoodleSearchAnim />
                   <div className="space-y-2 mt-4 mb-8 relative z-10">
                       <h2 className="text-2xl font-black italic text-white tracking-tight">Scanning Area...</h2>
-                      <p className="text-slate-400 text-xs font-bold uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">
-                        We've looked everywhere within {searchRadius}km.
-                      </p>
+                      <p className="text-slate-400 text-xs font-bold uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">We've looked everywhere within {searchRadius}km.</p>
                   </div>
                   <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 rounded-2xl backdrop-blur-md shadow-xl">
                       <button onClick={handleDecreaseRadius} disabled={searchRadius <= 50} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30"><Minus size={16} className="text-slate-300"/></button>
@@ -303,25 +270,12 @@ export default function App() {
         </Suspense>
       </div>
 
-      {/* Modals Layer */}
       <AnimatePresence>
         <Suspense fallback={<div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[110] flex items-center justify-center"><Loader2 className="animate-spin text-pink-500" size={32}/></div>}>
           
           {/* Profile Form (Edit/Create) */}
           {(activeTab === 'profile' || showProfileForm) && (
-             <CreateProfileForm 
-               user={user} 
-               existingData={myProfile} 
-               onCancel={() => { 
-                  if (isProfileComplete) {
-                     setActiveTab('swipe'); 
-                     setShowProfileForm(false); 
-                  } else {
-                     alert("Please add a Name and Photo to continue.");
-                  }
-               }} 
-               showToast={(msg) => alert(msg)} 
-             />
+             <CreateProfileForm user={user} existingData={myProfile} onCancel={() => { if (isProfileComplete) { setActiveTab('swipe'); setShowProfileForm(false); } else { alert("Please add a Name and Photo to continue."); } }} showToast={(msg) => alert(msg)} />
           )}
           
           {/* Chat List */}
