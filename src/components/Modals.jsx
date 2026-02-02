@@ -1,14 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, memo } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  X, LogOut, Trash2, Edit3, ShieldAlert, MessageCircle, Heart, Zap, Sparkles, 
-  MapPin, Moon, Sun, Users, Volume2, ShieldCheck, Mail, Building, Calendar 
+  X, ShieldAlert, MessageCircle, Heart, Zap, Sparkles, 
+  MapPin, Moon, Users, Volume2, ShieldCheck, Mail, Building 
 } from 'lucide-react';
 import { auth } from '../firebase';
 import confetti from 'canvas-confetti';
 
 // --- 1. MATCH POPUP (Celebration) ---
-export const MatchPopup = ({ person, onClose, onChat }) => {
+export const MatchPopup = memo(({ person, onClose, onChat }) => {
   // Trigger Confetti on Mount
   useEffect(() => {
     const duration = 2000;
@@ -25,7 +25,7 @@ export const MatchPopup = ({ person, onClose, onChat }) => {
       initial={{ opacity: 0 }} 
       animate={{ opacity: 1 }} 
       exit={{ opacity: 0 }} 
-      className="fixed inset-0 z-[200] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6"
+      className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6"
     >
       <div className="w-full max-w-sm flex flex-col items-center text-center relative">
         
@@ -82,24 +82,14 @@ export const MatchPopup = ({ person, onClose, onChat }) => {
       </div>
     </motion.div>
   );
-};
+});
 
 // --- 2. DETAIL MODAL (Full Profile View) ---
-export const DetailModal = ({ person, onClose }) => {
+export const DetailModal = memo(({ person, onClose }) => {
   // Logic: Use Room Photo as cover if Host, otherwise use Profile Photo
   const coverImage = (person.userRole === 'host' && person.roomImages?.length > 0) 
     ? person.roomImages[0] 
     : (person.images?.[0] || person.img);
-
-  // Helper Component for Data Rows
-  const DetailRow = ({ icon, label, value }) => (
-    <div className="flex items-center justify-between border-b border-white/5 pb-3 last:border-0 last:pb-0">
-        <span className="flex items-center gap-3 text-sm font-medium text-slate-400">
-            {icon} {label}
-        </span>
-        <span className="text-sm font-bold text-white capitalize">{value || "Not Set"}</span>
-    </div>
-  );
 
   return (
     <motion.div 
@@ -115,7 +105,7 @@ export const DetailModal = ({ person, onClose }) => {
         animate={{ y: 0 }} 
         exit={{ y: "100%" }} 
         transition={{ type: "spring", damping: 25, stiffness: 200 }}
-        className="w-full h-[90vh] sm:h-[85vh] sm:max-w-md bg-[#0a0a0a] sm:rounded-[3rem] rounded-t-[3rem] overflow-hidden relative shadow-2xl flex flex-col"
+        className="w-full h-[95vh] sm:h-[85vh] sm:max-w-md bg-[#0a0a0a] sm:rounded-[3rem] rounded-t-[3rem] overflow-hidden relative shadow-2xl flex flex-col"
       >
         <button onClick={onClose} className="absolute top-6 right-6 z-50 p-2.5 bg-black/20 backdrop-blur-xl border border-white/10 rounded-full text-white hover:bg-white/10 transition-all">
             <X size={20}/>
@@ -227,70 +217,20 @@ export const DetailModal = ({ person, onClose }) => {
       </motion.div>
     </motion.div>
   );
-};
+});
 
-// --- 3. PROFILE SETTINGS MODAL ---
-export const ProfileModal = ({ user, myProfile, onClose, onDelete, onEdit }) => {
-  return (
-    <motion.div 
-      initial={{ opacity: 0 }} 
-      animate={{ opacity: 1 }} 
-      exit={{ opacity: 0 }} 
-      className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-md flex items-end sm:items-center justify-center p-4"
-    >
-      <motion.div 
-        initial={{ y: "100%" }} 
-        animate={{ y: 0 }} 
-        exit={{ y: "100%" }} 
-        className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[3rem] overflow-hidden shadow-2xl"
-      >
-        <div className="p-8 pt-10 text-center">
-            <div className="relative inline-block mb-6">
-                <img src={user.photoURL} className="w-28 h-28 rounded-[2.5rem] object-cover border-4 border-black shadow-2xl" />
-                <div className="absolute -bottom-2 -right-2 bg-pink-600 p-2 rounded-xl border-4 border-[#0a0a0a]">
-                    <Edit3 size={16} className="text-white"/>
-                </div>
-            </div>
-            
-            <h2 className="text-2xl font-black text-white italic tracking-tight mb-1">{myProfile?.name || user.displayName}</h2>
-            <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-8">{myProfile?.city || "Location Pending"}</p>
+// Helper for Detail Row
+const DetailRow = ({ icon, label, value }) => (
+    <div className="flex items-center justify-between border-b border-white/5 pb-3 last:border-0 last:pb-0">
+        <span className="flex items-center gap-3 text-sm font-medium text-slate-400">
+            {icon} {label}
+        </span>
+        <span className="text-sm font-bold text-white capitalize">{value || "Not Set"}</span>
+    </div>
+);
 
-            <div className="space-y-3">
-                <button 
-                  onClick={() => onEdit(myProfile)} 
-                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-colors"
-                >
-                    <Edit3 size={18}/> Edit Profile
-                </button>
-                <div className="grid grid-cols-2 gap-3">
-                    <button 
-                      onClick={() => auth.signOut()} 
-                      className="bg-slate-900 border border-white/5 text-slate-400 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-colors"
-                    >
-                        <LogOut size={18}/> Logout
-                    </button>
-                    <button 
-                      onClick={() => onDelete(myProfile?.id)} 
-                      className="bg-red-500/10 border border-red-500/20 text-red-500 font-bold py-4 rounded-2xl flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors"
-                    >
-                        <Trash2 size={18}/> Delete
-                    </button>
-                </div>
-            </div>
-            <button 
-              onClick={onClose} 
-              className="mt-8 text-slate-600 font-bold text-xs uppercase tracking-widest hover:text-white"
-            >
-              Close
-            </button>
-        </div>
-      </motion.div>
-    </motion.div>
-  );
-};
-
-// --- 4. REPORT MODAL ---
-export const ReportModal = ({ person, onConfirm, onCancel }) => {
+// --- 3. REPORT MODAL ---
+export const ReportModal = memo(({ person, onConfirm, onCancel }) => {
   const reasons = ["Fake Profile", "Scam / Spam", "Inappropriate", "Harassment"];
   return (
     <motion.div 
@@ -331,4 +271,4 @@ export const ReportModal = ({ person, onConfirm, onCancel }) => {
       </motion.div>
     </motion.div>
   );
-};
+});

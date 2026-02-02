@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { auth, db, provider } from './firebase';
 import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
@@ -12,6 +12,7 @@ import { MessageCircle, User, Loader2, Minus, Plus, MapPin, Sparkles, X, Heart, 
 
 // --- LAZY LOAD COMPONENTS ---
 const Card = lazy(() => import('./components/Cards').then(m => ({ default: m.Card })));
+const AdCard = lazy(() => import('./components/AdCard').then(m => ({ default: m.AdCard }))); // ✅ New Ad Component
 const ChatModal = lazy(() => import('./components/Chat').then(m => ({ default: m.ChatModal })));
 const CreateProfileForm = lazy(() => import('./components/Forms').then(m => ({ default: m.CreateProfileForm })));
 const MatchPopup = lazy(() => import('./components/Modals').then(m => ({ default: m.MatchPopup })));
@@ -36,8 +37,6 @@ export default function App() {
   
   const swipedIdsRef = useRef(new Set()); 
   const initialFetchDone = useRef(false);
-  
-  // ✅ FIX 1: Add a Ref to track if we are currently fetching to prevent double-calls
   const isFetchingRef = useRef(false);
 
   const isProfileComplete = myProfile && myProfile.name && (myProfile.images?.length > 0 || myProfile.roomImages?.length > 0);
@@ -110,19 +109,17 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // --- 4. FEED LOGIC (With Duplicate Protection) ---
+  // --- 4. FEED LOGIC (With Strict Isolation & Deduplication) ---
   useEffect(() => {
     const fetchFeed = async () => {
-      // Safety Checks
       if (loading || !user || !isProfileComplete || !myProfile?.lat || activeTab === 'profile') {
         return;
       }
 
-      // ✅ FIX 2: Check the Lock. If already fetching, STOP.
       if (isFetchingRef.current) return;
 
       if (people.length < 2) { 
-        isFetchingRef.current = true; // 🔒 LOCK
+        isFetchingRef.current = true;
 
         try {
           const nearby = await getNearbyUsers(
@@ -133,16 +130,11 @@ export default function App() {
             []
           );
           
-          // Initial filter against Swiped IDs
           const notSwipedPeople = nearby.filter(p => !swipedIdsRef.current.has(p.id));
-
           const feedWithAds = injectSmartAds(notSwipedPeople, myProfile);
 
           if (feedWithAds.length > 0) {
               setPeople(prev => {
-                  // ✅ FIX 3: STRICT DEDUPLICATION
-                  // Compare incoming items against the *current* state (prev).
-                  // Only add items that are NOT already in the list.
                   const uniqueNewItems = feedWithAds.filter(newItem => 
                       !prev.some(existingItem => existingItem.id === newItem.id)
                   );
@@ -152,7 +144,7 @@ export default function App() {
         } catch (e) { 
             console.error("Feed Error", e); 
         } finally {
-            isFetchingRef.current = false; // 🔓 UNLOCK
+            isFetchingRef.current = false;
         }
         initialFetchDone.current = true;
       }
@@ -160,22 +152,27 @@ export default function App() {
     fetchFeed();
   }, [user, activeTab, people.length, searchRadius, isProfileComplete, loading, myProfile]);
 
-  // --- ACTIONS ---
-  const handleIncreaseRadius = () => setSearchRadius(prev => prev >= 500 ? 500 : (prev >= 200 ? 500 : (prev >= 100 ? 200 : 100)));
-  const handleDecreaseRadius = () => setSearchRadius(prev => prev <= 50 ? 50 : (prev <= 100 ? 50 : (prev <= 200 ? 100 : 200)));
+  // --- HANDLERS (Memoized for Performance) ---
+  
+  const handleIncreaseRadius = useCallback(() => setSearchRadius(prev => prev >= 500 ? 500 : (prev >= 200 ? 500 : (prev >= 100 ? 200 : 100))), []);
+  const handleDecreaseRadius = useCallback(() => setSearchRadius(prev => prev <= 50 ? 50 : (prev <= 100 ? 50 : (prev <= 200 ? 100 : 200))), []);
 
-  const handleSwipeButton = async (direction) => {
-    if (people.length === 0) return;
-    const item = people[people.length - 1]; 
-    await onSwipe(direction, item);
-  };
-
-  const onSwipe = async (direction, item) => {
+  const onSwipe = useCallback(async (direction, item) => {
+    if (!user) return;
+    
     swipedIdsRef.current.add(item.id);
     setPeople(prev => prev.filter(p => p.id !== item.id));
     triggerHaptic(direction === 'right' ? 'success' : 'light');
-    if (item.isAd) return;
+    
+    // ✅ AD LOGIC: Open Link on Right Swipe
+    if (item.isAd) {
+      if (direction === 'right') {
+        window.open(item.link, '_blank');
+      }
+      return; 
+    }
 
+    // USER LOGIC: Match or Pass
     try {
       if (direction === 'right') {
         const result = await swipeRight(user.uid, item.id);
@@ -184,10 +181,30 @@ export default function App() {
         await swipeLeft(user.uid, item.id);
       }
     } catch (error) { console.error(error); }
-  };
+  }, [user]);
 
-  const handleCardLeftScreen = (id) => setPeople(prev => prev.filter(p => p.id !== id));
-  const handleLogin = async () => { try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); } };
+  const handleSwipeButton = useCallback(async (direction) => {
+    if (people.length === 0) return;
+    const item = people[people.length - 1]; 
+    await onSwipe(direction, item);
+  }, [people, onSwipe]);
+
+  const handleCardLeftScreen = useCallback((id) => {
+    setPeople(prev => prev.filter(p => p.id !== id));
+  }, []);
+
+  const handleLogin = useCallback(async () => {
+    try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
+  }, []);
+
+  const handleCloseProfile = useCallback(() => {
+    if (isProfileComplete) {
+       setActiveTab('swipe'); 
+       setShowProfileForm(false); 
+    } else {
+       alert("Please add a Name and Photo to continue.");
+    }
+  }, [isProfileComplete]);
 
   // --- RENDER: SPLASH SCREEN ---
   if (authLoading) return (
@@ -206,9 +223,10 @@ export default function App() {
     </div>
   );
 
-  // --- RENDER: LOGIN OR APP ---
+  // --- RENDER: LOGIN ---
   if (!user) return <LandingPage onLogin={handleLogin} />;
   
+  // --- RENDER: LOADING STATE ---
   if (loading || !profileCheckComplete) return (
     <div className="h-screen bg-[#050505] flex items-center justify-center">
       <Loader2 className="text-pink-500 animate-spin" size={32} />
@@ -275,7 +293,24 @@ export default function App() {
              <>
               <AnimatePresence>
                 {people.map((person) => (
-                  <Card key={person.id} person={person} myProfile={myProfile} onSwipe={onSwipe} onCardLeftScreen={handleCardLeftScreen} onInfo={setSelectedPerson} onReport={setReportingPerson} />
+                  // ✅ FIX: CONDITIONAL RENDERING FOR ADS VS USERS
+                  person.isAd ? (
+                    <AdCard 
+                        key={person.id} 
+                        ad={person} 
+                        onSwipe={onSwipe} 
+                    />
+                  ) : (
+                    <Card 
+                        key={person.id} 
+                        person={person} 
+                        myProfile={myProfile} 
+                        onSwipe={onSwipe} 
+                        onCardLeftScreen={handleCardLeftScreen} 
+                        onInfo={setSelectedPerson} 
+                        onReport={setReportingPerson} 
+                    />
+                  )
                 ))}
               </AnimatePresence>
 
@@ -333,14 +368,7 @@ export default function App() {
              <CreateProfileForm 
                user={user} 
                existingData={myProfile} 
-               onCancel={() => { 
-                  if (isProfileComplete) {
-                     setActiveTab('swipe'); 
-                     setShowProfileForm(false); 
-                  } else {
-                     alert("Please add a Name and Photo to continue.");
-                  }
-               }} 
+               onCancel={handleCloseProfile} 
                showToast={(msg) => alert(msg)} 
              />
           )}
