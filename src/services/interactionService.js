@@ -1,13 +1,14 @@
 import { doc, runTransaction, setDoc, deleteDoc, getDoc, serverTimestamp } from 'firebase/firestore'; 
 import { db } from '../firebase';
 
-// --- HELPER: Get Minimal Profile for Match List ---
+// --- HELPER: Get Minimal Profile Snapshot (The "Fast-Read" Data) ---
 const getProfileSnapshot = async (uid) => {
     try {
         const snap = await getDoc(doc(db, "users", uid));
         if (snap.exists()) {
             const data = snap.data();
             
+            // Priority for display image: Room (if Host) > Personal > Fallback
             let displayImage = "https://via.placeholder.com/150";
 
             if (data.userRole === 'host' && data.roomImages && data.roomImages.length > 0) {
@@ -18,10 +19,14 @@ const getProfileSnapshot = async (uid) => {
                 displayImage = data.img; 
             }
 
+            // This object is what gets "Denormalized" into the interaction document
             return { 
+                uid: uid,
                 name: data.name || "Unknown", 
+                age: data.age || "?",
                 img: displayImage,
                 userRole: data.userRole || "hunter", 
+                occupation: data.occupation || "Student",
                 city: data.city || ""
             };
         }
@@ -35,7 +40,7 @@ const getProfileSnapshot = async (uid) => {
 export const swipeRight = async (myUid, targetUid) => {
   if (!myUid || !targetUid) return { isMatch: false };
 
-  // Match ID (Alphabetical Order ensuring unique ID for the pair)
+  // Unique ID for the Match pair (Alphabetical Order)
   const matchId = [myUid, targetUid].sort().join("_");
   
   // Interaction IDs
@@ -43,27 +48,27 @@ export const swipeRight = async (myUid, targetUid) => {
   const theirInteractionId = `${targetUid}_${myUid}`;
 
   try {
-    // 1. Pre-fetch profiles
-    const myProfile = await getProfileSnapshot(myUid);
-    const theirProfile = await getProfileSnapshot(targetUid);
+    // 1. Pre-fetch profiles to store in the 'like' document (Denormalization)
+    const myProfileSnapshot = await getProfileSnapshot(myUid);
+    const theirProfileSnapshot = await getProfileSnapshot(targetUid);
 
     return await runTransaction(db, async (transaction) => {
-      // 2. Check if they ALREADY liked us (Look in 'interactions' collection)
+      // 2. Check if they ALREADY liked us
       const reverseLikeRef = doc(db, "interactions", theirInteractionId);
       const reverseLikeSnap = await transaction.get(reverseLikeRef);
 
-      // Check if the reverse document exists AND is a like
       const isMatch = reverseLikeSnap.exists() && reverseLikeSnap.data().type === 'like';
 
-      // 3. Record OUR like in the 'interactions' database
+      // 3. Record OUR like with Denormalized Data for Fast Loading
       const likeRef = doc(db, "interactions", myInteractionId);
       transaction.set(likeRef, {
-        fromUserId: myUid, // Changed from 'from' to 'fromUserId' to match Vault logic
-        toUserId: targetUid, // Changed from 'to' to 'toUserId' to match Vault logic
+        fromUserId: myUid,
+        toUserId: targetUid,
+        fromData: myProfileSnapshot, // ✅ DENORMALIZED: Stores my info in the like doc
         type: 'like',
         timestamp: serverTimestamp(),
         isMatch: isMatch,
-        isRevealed: false // CRITICAL: Starts locked for the other person
+        isRevealed: false 
       });
 
       // 4. IF IT IS A MATCH (Mutual Like)
@@ -73,8 +78,8 @@ export const swipeRight = async (myUid, targetUid) => {
         transaction.set(matchRef, {
           users: [myUid, targetUid], 
           profiles: {
-            [myUid]: myProfile,
-            [targetUid]: theirProfile
+            [myUid]: myProfileSnapshot,
+            [targetUid]: theirProfileSnapshot
           },
           lastActivity: serverTimestamp(),
           timestamp: Date.now(),
@@ -82,8 +87,11 @@ export const swipeRight = async (myUid, targetUid) => {
           lastSenderId: "system",
           readStatus: { [myUid]: false, [targetUid]: false } 
         });
+
+        // Update their interaction document to reflect the match status
+        transaction.update(reverseLikeRef, { isMatch: true });
         
-        return { isMatch: true, matchData: theirProfile };
+        return { isMatch: true, matchData: theirProfileSnapshot };
       }
       
       return { isMatch: false };
@@ -98,8 +106,6 @@ export const swipeRight = async (myUid, targetUid) => {
 export const swipeLeft = async (myUid, targetUid) => {
   if (!myUid || !targetUid) return;
   try {
-    // Record the pass in 'interactions' so we don't show them again
-    // UPDATED: Writing to 'interactions' instead of 'passes'
     const interactionId = `${myUid}_${targetUid}`;
     await setDoc(doc(db, "interactions", interactionId), {
         fromUserId: myUid,
@@ -123,8 +129,7 @@ export const unmatchUser = async (myUid, targetUid) => {
     // 1. Delete the match conversation
     await deleteDoc(doc(db, "matches", matchId));
     
-    // 2. Delete BOTH interactions
-    // UPDATED: Deleting from 'interactions' instead of 'likes'
+    // 2. Delete BOTH interactions to reset the swipe state
     await deleteDoc(doc(db, "interactions", `${myUid}_${targetUid}`));
     await deleteDoc(doc(db, "interactions", `${targetUid}_${myUid}`));
     

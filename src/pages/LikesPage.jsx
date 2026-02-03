@@ -4,9 +4,9 @@ import {
   Heart, Lock, Sparkles, X, ChevronLeft, Eye, ShieldCheck, MessageCircle 
 } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { swipeRight } from '../services/interactionService';
-import { SecureImage } from '../components/SecureImage'; // ✅ Ensure this component exists
+import { SecureImage } from '../components/SecureImage';
 
 const SPONSORS = [
   {
@@ -34,49 +34,26 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
   const [loading, setLoading] = useState(true);
   const [adModal, setAdModal] = useState(null);
 
-  // --- 2. FETCH LIKES (REAL-TIME) ---
+  // --- 2. FETCH LIKES (OPTIMIZED FAST-READ) ---
   useEffect(() => {
     if (!currentUser?.uid) return;
 
+    // Fetching from 'interactions' where the current user is the recipient
     const q = query(
       collection(db, "interactions"), 
       where("toUserId", "==", currentUser.uid),
       where("type", "==", "like")
     );
 
-    const unsubscribe = onSnapshot(q, async (snapshot) => {
-        const profiles = await Promise.all(snapshot.docs.map(async (interactionDoc) => {
-            const data = interactionDoc.data();
-            
-            try {
-                // Fetch the actual user profile of the liker
-                const userSnap = await getDoc(doc(db, "users", data.fromUserId));
-                
-                if (userSnap.exists()) {
-                    return {
-                        interactionId: interactionDoc.id,
-                        id: data.fromUserId, 
-                        ...userSnap.data(),
-                        isMatch: data.isMatch || false, 
-                        isRevealed: data.isRevealed || false
-                    };
-                } else {
-                    // Fallback for missing profiles
-                    return {
-                        interactionId: interactionDoc.id,
-                        id: data.fromUserId,
-                        name: "Deleted User",
-                        age: "?",
-                        images: ["https://via.placeholder.com/400"],
-                        isRevealed: false
-                    };
-                }
-            } catch (err) {
-                return null;
-            }
+    // ✅ PERFORMANCE FIX: We no longer map through and fetch separate user profiles.
+    // The profile data is now part of the interaction document itself.
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const likedProfiles = snapshot.docs.map(doc => ({
+            interactionId: doc.id,
+            ...doc.data()
         }));
 
-        setLikes(profiles.filter(p => p !== null));
+        setLikes(likedProfiles);
         setLoading(false);
     });
 
@@ -87,7 +64,7 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
   const handleUnlock = async () => {
     if (!adModal) return;
 
-    // Update DB to unlock permanently
+    // Update Firestore to reveal this specific liker permanently
     const interactionRef = doc(db, "interactions", adModal.profile.interactionId);
     await updateDoc(interactionRef, { isRevealed: true });
 
@@ -97,11 +74,10 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
 
   // --- 4. MATCH LOGIC ---
   const handleAcceptMatch = async (profile) => {
-    // Call swipeRight. Since they already liked you, this GUARANTEES a match.
-    const result = await swipeRight(currentUser.uid, profile.id);
+    // Uses the denormalized fromUserId to trigger the mutual match
+    const result = await swipeRight(currentUser.uid, profile.fromUserId);
     
     if (result.isMatch) {
-        // Redirect to the Chat Tab if available
         if (onNavigateToChat) onNavigateToChat();
     }
   };
@@ -140,12 +116,12 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
            </div>
         ) : (
            <div className="grid grid-cols-2 gap-4 pb-20">
-             {likes.map((profile, i) => (
+             {likes.map((likeDoc, i) => (
                <LikeCard 
-                 key={profile.interactionId} 
-                 profile={profile} 
-                 onUnlock={() => setAdModal({ profile, sponsor: SPONSORS[i % SPONSORS.length] })} 
-                 onAccept={() => handleAcceptMatch(profile)} 
+                 key={likeDoc.interactionId} 
+                 profile={likeDoc} 
+                 onUnlock={() => setAdModal({ profile: likeDoc, sponsor: SPONSORS[i % SPONSORS.length] })} 
+                 onAccept={() => handleAcceptMatch(likeDoc)} 
                />
              ))}
            </div>
@@ -169,12 +145,15 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
 const LikeCard = ({ profile, onUnlock, onAccept }) => {
   const isLocked = !profile.isRevealed;
   const isAlreadyMatched = profile.isMatch;
+  
+  // ✅ FAST ACCESS: Using the denormalized data directly
+  const person = profile.fromData || { name: "Unknown", age: "?", img: "" };
 
   return (
     <div className="relative aspect-[3/4] bg-white/5 rounded-2xl overflow-hidden border border-white/10 group">
        {/* IMAGE LAYER - SECURE CANVAS REPLACEMENT */}
        <SecureImage 
-         src={profile.images?.[0] || "https://via.placeholder.com/400"} 
+         src={person.img || "https://via.placeholder.com/400"} 
          isBlurred={isLocked}
          className="w-full h-full"
        />
@@ -187,7 +166,7 @@ const LikeCard = ({ profile, onUnlock, onAccept }) => {
                     <Lock size={20} className="text-white" />
                 </div>
                 <h3 className="text-sm font-black text-white uppercase tracking-widest">Secret Admirer</h3>
-                <p className="text-[10px] font-bold text-slate-400">{profile.gender || "User"} • {profile.age || "?"} yrs</p>
+                <p className="text-[10px] font-bold text-slate-400">{person.userRole || "User"} • {person.age} yrs</p>
                 
                 <button 
                   onClick={onUnlock}
@@ -198,8 +177,8 @@ const LikeCard = ({ profile, onUnlock, onAccept }) => {
              </div>
           ) : (
              <div className="animate-in slide-in-from-bottom-4 fade-in duration-500">
-                <h3 className="text-lg font-black text-white leading-none">{profile.name}, {profile.age}</h3>
-                <p className="text-xs font-bold text-slate-300 mt-1 flex items-center gap-1"><ShieldCheck size={12} className="text-emerald-500"/> {profile.occupation}</p>
+                <h3 className="text-lg font-black text-white leading-none">{person.name}, {person.age}</h3>
+                <p className="text-xs font-bold text-slate-300 mt-1 flex items-center gap-1"><ShieldCheck size={12} className="text-emerald-500"/> {person.occupation || 'Member'}</p>
                 
                 <div className="mt-3 flex gap-2">
                     {isAlreadyMatched ? (

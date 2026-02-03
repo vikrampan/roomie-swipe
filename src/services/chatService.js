@@ -114,7 +114,7 @@ export const sendMessage = async (matchId, senderId, text) => {
   }
 };
 
-// --- 3. SUBSCRIBE TO MESSAGES (Limited) ---
+// --- 3. SUBSCRIBE TO MESSAGES (Rectified for Unmatch Cleanup) ---
 export const subscribeToMessages = (matchId, callback) => {
   if (!matchId || !matchId.includes('_')) {
       callback([]);
@@ -134,7 +134,12 @@ export const subscribeToMessages = (matchId, callback) => {
     }));
     callback(msgs);
   }, (error) => {
-      console.error("Message Listener Error:", error);
+      // ✅ RECTIFIED: Handle the permission error that occurs when a match is deleted (unmatched)
+      if (error.code === 'permission-denied') {
+          console.warn("Unmatched or match deleted. Closing message listener.");
+      } else {
+          console.error("Message Listener Error:", error);
+      }
       callback([]);
   });
 };

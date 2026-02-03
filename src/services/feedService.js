@@ -1,7 +1,7 @@
 import { collection, query, orderBy, getDocs, startAt, endAt, where, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
-import { AD_INVENTORY } from '../data/adData'; // Ensure this file exists
+import { AD_INVENTORY } from '../data/adData'; 
 
 // --- 1. CACHING HELPER ---
 // Prevents re-reading the same users from Firestore in one session to save costs.
@@ -21,7 +21,6 @@ const addToCache = (newIds) => {
 
 // --- 2. MAIN FUNCTION: GET NEARBY USERS ---
 export const getNearbyUsers = async (currentUser, location, radiusKm, filters, blockedIds) => {
-  // Safety Check: If no user or location, stop immediately.
   if (!currentUser || !location || !location.lat) {
     console.warn("Feed Error: Missing user or location data");
     return [];
@@ -30,32 +29,32 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
   const excludeIds = new Set([...(blockedIds || []), currentUser.uid]);
   const cachedSeen = getCachedIds();
 
-  // A. FETCH RECENT HISTORY (Passes & Likes)
-  // We exclude anyone you have interacted with in the last 30 days.
+  // --- A. FETCH RECENT HISTORY (RESIFIED FOR INTERACTIONS COLLECTION) ---
+  // ✅ FIX: No longer querying non-existent 'passes' or 'likes' collections.
+  // This resolves the "insufficient permissions" error.
   try {
     const recentLimit = Date.now() - (30 * 24 * 60 * 60 * 1000); 
     
-    // Run these in parallel for speed
-    const [passes, likes] = await Promise.all([
-      getDocs(query(collection(db, "passes"), where("from", "==", currentUser.uid), where("timestamp", ">", recentLimit))),
-      getDocs(query(collection(db, "likes"), where("from", "==", currentUser.uid), where("timestamp", ">", recentLimit)))
-    ]);
+    const q = query(
+      collection(db, "interactions"), 
+      where("fromUserId", "==", currentUser.uid), 
+      where("timestamp", ">", new Date(recentLimit))
+    );
 
-    passes.docs.forEach(d => excludeIds.add(d.data().to));
-    likes.docs.forEach(d => excludeIds.add(d.data().to));
+    const historySnap = await getDocs(q);
+    historySnap.docs.forEach(d => excludeIds.add(d.data().toUserId));
   } catch (error) {
     console.warn("History fetch warning:", error);
   }
 
-  // B. GEOHASH QUERY (The Efficient Search Engine)
+  // --- B. GEOHASH QUERY ---
   const center = [location.lat, location.lng];
   const radiusInM = radiusKm * 1000;
   const bounds = geohashQueryBounds(center, radiusInM);
   
   const results = [];
-  const MAX_RESULTS = 50; // Increased to ensure we find people
+  const MAX_RESULTS = 50; 
 
-  // Loop through Geohash bounds
   for (const b of bounds) {
     if (results.length >= MAX_RESULTS) break;
 
@@ -64,7 +63,7 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
       orderBy('geohash'),
       startAt(b[0]),
       endAt(b[1]),
-      limit(50) // Fetch larger batch to allow for filtering
+      limit(50) 
     );
 
     const snap = await getDocs(q);
@@ -72,22 +71,16 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
     for (const doc of snap.docs) {
       const data = doc.data();
       
-      // --- FILTERING LOGIC ---
-
       // 1. Basic Exclusions (Self, History, Seen Cache)
-      if (doc.id === currentUser.uid) continue;
-      if (excludeIds.has(doc.id)) continue;
-      if (cachedSeen.has(doc.id)) continue; 
+      if (doc.id === currentUser.uid || excludeIds.has(doc.id) || cachedSeen.has(doc.id)) continue;
       
-      // 2. Gender Filter (Only if strictly set)
+      // 2. Gender Filter
       if (filters?.gender && filters.gender !== "All" && data.gender !== filters.gender) continue; 
 
-      // 3. ✅ STRICT ROLE FILTER (The Supply vs Demand Fix)
-      // If I am a Host, I should NOT see other Hosts.
-      // If I am a Hunter, I should NOT see other Hunters.
+      // 3. STRICT ROLE FILTER (Host sees Hunters, Hunter sees Hosts)
       if (filters?.role && data.userRole === filters.role) continue;
 
-      // 4. Distance Check (Precise Calculation)
+      // 4. Distance Calculation
       const userLat = data.lat || data.latitude;
       const userLng = data.lng || data.long || data.longitude;
 
@@ -95,7 +88,7 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
 
       const distanceInKm = distanceBetween([userLat, userLng], center);
       
-      // 5. VISIBILITY CHECK:
+      // 5. Visibility Check
       if (distanceInKm <= radiusKm) {
         results.push({ 
             id: doc.id, 
@@ -107,62 +100,50 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
     }
   }
 
-  // Save new IDs to cache so we don't fetch them again this session
   addToCache(results.map(r => r.id));
-  
   return results;
 };
 
-// --- 3. SMART AD INJECTION LOGIC (ROTATION ENGINE) ---
+// --- 3. SMART AD INJECTION LOGIC ---
 export const injectSmartAds = (feedUsers, myProfile) => {
   if (!myProfile) return feedUsers;
 
   const usersWithAds = [];
-  let adCount = 0; // Track how many ads we've inserted to rotate them
+  let adCount = 0; 
 
-  // --- A. DEFINE ROTATION LISTS (Expanded with New Ads) ---
-  // Rotation for HOSTS (Need services for their property & lifestyle)
   const hostAds = [
-    AD_INVENTORY.cleaning,       // 1. Clean the room
-    AD_INVENTORY.quickGrocery,   // 2. Daily essentials
-    AD_INVENTORY.premiumFurniture, // 3. Upgrade the room
-    AD_INVENTORY.wifi,           // 4. Connectivity
-    AD_INVENTORY.foodDelivery    // 5. Lazy dinner
+    AD_INVENTORY.cleaning,       
+    AD_INVENTORY.quickGrocery,   
+    AD_INVENTORY.premiumFurniture, 
+    AD_INVENTORY.wifi,           
+    AD_INVENTORY.foodDelivery    
   ];
 
-  // Rotation for HUNTERS (Need services for moving & settling in)
   const hunterAds = [
-    AD_INVENTORY.packers,        // 1. Move stuff
-    AD_INVENTORY.wifi,           // 2. Get internet
-    AD_INVENTORY.foodDelivery,   // 3. No kitchen set up yet
-    AD_INVENTORY.budgetFurniture,// 4. Cheap bed/mattress
-    AD_INVENTORY.coliving        // 5. Alternative options
+    AD_INVENTORY.packers,        
+    AD_INVENTORY.wifi,           
+    AD_INVENTORY.foodDelivery,   
+    AD_INVENTORY.budgetFurniture,
+    AD_INVENTORY.coliving        
   ];
 
-  // --- B. SELECT TARGET LIST ---
   const targetAds = myProfile.userRole === 'host' ? hostAds : hunterAds;
 
-  // --- C. INJECT ADS ---
   feedUsers.forEach((user, index) => {
     usersWithAds.push(user);
 
-    // ✅ CHANGED: Inject an AD after every 3rd user card (High Frequency)
+    // ✅ Inject an AD after every 3rd user card
     if ((index + 1) % 3 === 0) {
-      
-      // Calculate which ad to show using Modulo (%) 
-      // This ensures we cycle through the entire list 0 -> 1 -> ... -> 4 -> 0
       const adIndex = adCount % targetAds.length; 
       const selectedAd = targetAds[adIndex];
 
       if (selectedAd) {
         usersWithAds.push({
           ...selectedAd,
-          isAd: true, // Flag for App.jsx to render AdCard instead of Profile Card
-          // Unique ID ensures React doesn't glitch when rendering the list
+          isAd: true, 
           id: `${selectedAd.id}_${index}_${Date.now()}` 
         });
-        
-        adCount++; // Increment counter so next ad is different
+        adCount++; 
       }
     }
   });

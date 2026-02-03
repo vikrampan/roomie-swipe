@@ -18,7 +18,7 @@ const CreateProfileForm = lazy(() => import('./components/Forms').then(m => ({ d
 const MatchPopup = lazy(() => import('./components/Modals').then(m => ({ default: m.MatchPopup })));
 const DetailModal = lazy(() => import('./components/Modals').then(m => ({ default: m.DetailModal })));
 const ReportModal = lazy(() => import('./components/Modals').then(m => ({ default: m.ReportModal })));
-const LikesPage = lazy(() => import('./pages/LikesPage').then(m => ({ default: m.LikesPage }))); // ✅ NEW PAGE
+const LikesPage = lazy(() => import('./pages/LikesPage').then(m => ({ default: m.LikesPage })));
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -37,7 +37,7 @@ export default function App() {
   const [matchData, setMatchData] = useState(null);
   const [searchRadius, setSearchRadius] = useState(50);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
-  const [hasNewLikes, setHasNewLikes] = useState(false); // ✅ New Like Notification
+  const [hasNewLikes, setHasNewLikes] = useState(false); 
   
   const swipedIdsRef = useRef(new Set()); 
   const isFetchingRef = useRef(false);
@@ -101,6 +101,9 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     const checkNotifications = async () => {
+        // Stop fetching if tab is backgrounded to save server costs
+        if (document.hidden) return;
+
         try {
             // Check Messages
             const matches = await fetchMatches(user.uid);
@@ -112,7 +115,7 @@ export default function App() {
                 collection(db, "interactions"), 
                 where("toUserId", "==", user.uid),
                 where("type", "==", "like"),
-                where("isRevealed", "==", false) // Only count LOCKED likes
+                where("isRevealed", "==", false) 
             );
             const snapLikes = await getDocs(qLikes);
             setHasNewLikes(!snapLikes.empty);
@@ -195,10 +198,18 @@ export default function App() {
     } catch (error) { console.error(error); }
   }, [user]);
 
-  const handleSwipeButton = useCallback(async (direction) => {
+  const handleSwipeButton = useCallback((direction) => {
     if (people.length === 0) return;
-    const item = people[people.length - 1]; 
-    await onSwipe(direction, item);
+    const topPerson = people[people.length - 1]; 
+    
+    // Update direction state for motion exit before triggering swipe logic
+    setPeople(prev => prev.map(p => 
+      p.id === topPerson.id ? { ...p, swipeDirection: direction } : p
+    ));
+
+    setTimeout(() => {
+        onSwipe(direction, topPerson);
+    }, 50);
   }, [people, onSwipe]);
 
   const handleCardLeftScreen = useCallback((id) => {
@@ -253,12 +264,11 @@ export default function App() {
         <motion.div animate={{ x: [0, -100, 0], y: [0, 100, 0], scale: [1, 1.4, 1] }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute top-[20%] -left-[20%] w-[500px] h-[500px] bg-pink-600/10 rounded-full blur-[100px]" />
       </div>
 
-      {/* HEADER (Only show in Swipe View) */}
+      {/* HEADER */}
       {activeTab === 'swipe' && (
           <header className="px-6 py-5 z-50 flex justify-between items-center relative">
             <div className="absolute inset-0 bg-gradient-to-b from-black/90 via-black/50 to-transparent pointer-events-none"></div>
             
-            {/* PROFILE BUTTON */}
             <div className="flex items-center gap-2 z-50">
                 <button onClick={() => setActiveTab('profile')} className="relative group p-2 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all active:scale-95">
                     {myProfile?.images?.[0] || myProfile?.img ? ( 
@@ -267,7 +277,6 @@ export default function App() {
                 </button>
             </div>
 
-            {/* LOGO */}
             <div className="flex flex-col items-center z-50 pt-2">
                 <h1 className="text-3xl font-black italic tracking-tighter flex items-center gap-1 drop-shadow-2xl">
                   ROOMIE <span className="text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500">SWIPE</span>
@@ -280,17 +289,24 @@ export default function App() {
                 )}
             </div>
 
-            {/* ACTION BUTTONS (CHAT & LIKES) */}
             <div className="flex items-center gap-3 z-50">
-                {/* LIKES BUTTON (THE VAULT) */}
-                <button onClick={() => setActiveTab('likes')} className="relative p-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all active:scale-95">
-                  <Heart size={24} className="text-pink-500" />
-                  {hasNewLikes && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 border-2 border-[#080808] rounded-full animate-pulse"></span>}
+                {/* LIKES BUTTON (THE VAULT) - RECTIFIED VISIBILITY */}
+                <button 
+                  onClick={() => setActiveTab('likes')} 
+                  className="relative p-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all active:scale-95"
+                >
+                  <Heart size={28} strokeWidth={2.5} className={`${hasNewLikes ? 'text-pink-500 fill-pink-500/20' : 'text-slate-300'}`} />
+                  {hasNewLikes && (
+                    <span className="absolute top-2 right-2 flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500 border-2 border-[#080808]"></span>
+                    </span>
+                  )}
                 </button>
 
                 {/* CHAT BUTTON */}
                 <button onClick={() => setActiveTab('chat')} className="relative p-3 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all active:scale-95">
-                  <MessageCircle size={24} className="text-slate-300" />
+                  <MessageCircle size={28} strokeWidth={2.5} className="text-slate-300" />
                   {hasUnreadMessages && <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-pink-500 border-2 border-[#080808] rounded-full animate-pulse"></span>}
                 </button>
             </div>
@@ -319,64 +335,70 @@ export default function App() {
                 </div>
             ) : (
                 <>
-                <AnimatePresence>
-                    {people.map((person) => (
-                    person.isAd ? (
-                        <AdCard 
-                            key={person.id} 
-                            ad={person} 
-                            onSwipe={onSwipe} 
-                        />
-                    ) : (
-                        <Card 
-                            key={person.id} 
-                            person={person} 
-                            myProfile={myProfile} 
-                            onSwipe={onSwipe} 
-                            onCardLeftScreen={handleCardLeftScreen} 
-                            onInfo={setSelectedPerson} 
-                            onReport={setReportingPerson} 
-                        />
-                    )
-                    ))}
-                </AnimatePresence>
-
-                {people.length === 0 && !loading && (
-                    <div className="flex flex-col items-center justify-center text-center z-0 w-full max-w-sm">
-                    <div className="w-32 h-32 mb-6 flex items-center justify-center relative">
-                        <div className="absolute inset-0 bg-pink-500/20 rounded-full animate-ping opacity-20"></div>
-                        <Radar size={64} className="text-pink-500/80" />
-                    </div>
-                    <div className="space-y-2 mb-8 relative z-10">
-                        <h2 className="text-2xl font-black italic text-white tracking-tight">Scanning Area...</h2>
-                        <p className="text-slate-400 text-xs font-bold uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">
-                            We've looked everywhere within {searchRadius}km.
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 rounded-2xl backdrop-blur-md shadow-xl">
-                        <button onClick={handleDecreaseRadius} disabled={searchRadius <= 50} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30"><Minus size={16} className="text-slate-300"/></button>
-                        <div className="flex flex-col items-center w-24">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Radius</span>
-                            <span className="text-lg font-black text-white flex items-center gap-1"><MapPin size={12} className="text-pink-500" fill="currentColor"/> {searchRadius} km</span>
+                <AnimatePresence mode="popLayout">
+                    {people.length === 0 && !loading ? (
+                        <div className="flex flex-col items-center justify-center text-center z-0 w-full max-w-sm">
+                            <div className="w-32 h-32 mb-6 flex items-center justify-center relative">
+                                <div className="absolute inset-0 bg-pink-500/20 rounded-full animate-ping opacity-20"></div>
+                                <Radar size={64} className="text-pink-500/80" />
+                            </div>
+                            <div className="space-y-2 mb-8 relative z-10">
+                                <h2 className="text-2xl font-black italic text-white tracking-tight">Scanning Area...</h2>
+                                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest max-w-[200px] mx-auto leading-relaxed">
+                                    Looking within {searchRadius}km.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-4 bg-white/5 border border-white/10 p-2 rounded-2xl backdrop-blur-md shadow-xl">
+                                <button onClick={handleDecreaseRadius} disabled={searchRadius <= 50} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30"><Minus size={16} className="text-slate-300"/></button>
+                                <div className="flex flex-col items-center w-24">
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Radius</span>
+                                    <span className="text-lg font-black text-white flex items-center gap-1"><MapPin size={12} className="text-pink-500" fill="currentColor"/> {searchRadius} km</span>
+                                </div>
+                                <button onClick={handleIncreaseRadius} disabled={searchRadius >= 500} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/10 hover:bg-pink-500/20 border border-white/5 hover:border-pink-500/50 active:scale-95 transition-all disabled:opacity-30 group"><Plus size={16} className="text-white group-hover:text-pink-500 transition-colors"/></button>
+                            </div>
                         </div>
-                        <button onClick={handleIncreaseRadius} disabled={searchRadius >= 500} className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/10 hover:bg-pink-500/20 border border-white/5 hover:border-pink-500/50 active:scale-95 transition-all disabled:opacity-30 group"><Plus size={16} className="text-white group-hover:text-pink-500 transition-colors"/></button>
-                    </div>
-                    </div>
-                )}
+                    ) : (
+                        people.map((person) => (
+                            person.isAd ? (
+                                <AdCard 
+                                    key={person.id} 
+                                    ad={person} 
+                                    onSwipe={onSwipe} 
+                                />
+                            ) : (
+                                <Card 
+                                    key={person.id} 
+                                    person={person} 
+                                    myProfile={myProfile} 
+                                    onSwipe={onSwipe} 
+                                    onCardLeftScreen={handleCardLeftScreen} 
+                                    onInfo={setSelectedPerson} 
+                                    onReport={setReportingPerson} 
+                                />
+                            )
+                        ))
+                    )}
+                </AnimatePresence>
                 </>
             )}
             </Suspense>
         </div>
       )}
 
-      {/* Floating Action Buttons (Only Swipe Mode) */}
+      {/* Floating Action Buttons */}
       {isProfileComplete && people.length > 0 && activeTab === 'swipe' && !selectedPerson && (
-        <div className="absolute bottom-6 left-0 right-0 z-40 flex justify-center items-center gap-6 pointer-events-auto">
-            <button onClick={() => handleSwipeButton('left')} className="w-14 h-14 rounded-full bg-[#1a1a1a] border border-white/10 flex items-center justify-center shadow-2xl active:scale-90 transition-all hover:bg-red-500/20 group">
-                <X size={28} className="text-red-500 group-hover:scale-110 transition-transform" />
+        <div className="absolute bottom-10 left-0 right-0 z-[100] flex justify-center items-center gap-8 pointer-events-auto">
+            <button 
+                onClick={() => handleSwipeButton('left')} 
+                className="w-16 h-16 rounded-full bg-[#1a1a1a] border-2 border-white/10 flex items-center justify-center shadow-2xl active:scale-90 transition-all hover:bg-red-500/20 group"
+            >
+                <X size={32} strokeWidth={3} className="text-red-500 group-hover:scale-110 transition-transform" />
             </button>
-            <button onClick={() => handleSwipeButton('right')} className="w-14 h-14 rounded-full bg-[#1a1a1a] border border-white/10 flex items-center justify-center shadow-2xl active:scale-90 transition-all hover:bg-emerald-500/20 group">
-                <Heart size={28} className="text-emerald-500 fill-current group-hover:scale-110 transition-transform" />
+            <button 
+                onClick={() => handleSwipeButton('right')} 
+                className="w-16 h-16 rounded-full bg-[#1a1a1a] border-2 border-white/10 flex items-center justify-center shadow-2xl active:scale-90 transition-all hover:bg-emerald-500/20 group"
+            >
+                <Heart size={32} strokeWidth={3} className="text-emerald-500 fill-current group-hover:scale-110 transition-transform" />
             </button>
         </div>
       )}
@@ -401,13 +423,13 @@ export default function App() {
           )}
 
           {/* LIKES VAULT */}
-{activeTab === 'likes' && (
-    <LikesPage 
-        currentUser={user} 
-        onBack={() => setActiveTab('swipe')} 
-        onNavigateToChat={() => setActiveTab('chat')} // ✅ ADD THIS PROP
-    />
-)}
+          {activeTab === 'likes' && (
+              <LikesPage 
+                  currentUser={user} 
+                  onBack={() => setActiveTab('swipe')} 
+                  onNavigateToChat={() => setActiveTab('chat')}
+              />
+          )}
           
           {selectedPerson && <DetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />}
           
