@@ -7,19 +7,17 @@ import {
 import { fetchMatches, subscribeToMessages, sendMessage } from '../services/chatService'; 
 import { unmatchUser } from '../services/interactionService';
 
-// --- MAIN WRAPPER (ISOLATED) ---
+// --- MAIN WRAPPER ---
 export const ChatModal = ({ user, onClose }) => {
   const [matches, setMatches] = useState([]);
   const [activeMatch, setActiveMatch] = useState(null);
 
-  // Load Matches (Once)
   useEffect(() => {
     let isMounted = true;
     const loadData = async () => {
         try {
             const data = await fetchMatches(user.uid);
             if (isMounted) {
-                // Filter out invalid profiles
                 const valid = data.filter(m => m.id && m.name);
                 setMatches(valid);
             }
@@ -29,22 +27,22 @@ export const ChatModal = ({ user, onClose }) => {
     return () => { isMounted = false; };
   }, [user]);
 
-  // Handle Match Selection
   const handleSelectMatch = useCallback((match) => {
     setActiveMatch(match);
   }, []);
 
   return (
     <motion.div 
+      // ✅ FIX: Using dvh for dynamic height adjustment in Safari
       initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
       transition={{ type: "spring", damping: 25, stiffness: 200 }}
-      className="fixed inset-0 z-[100] bg-[#050505] text-white flex flex-col font-sans md:flex-row"
+      className="fixed inset-0 z-[100] bg-[#050505] text-white flex flex-col font-sans md:flex-row h-[100dvh] overflow-hidden"
     >
       {/* LEFT SIDE: MATCH LIST */}
-      <div className={`flex-1 flex flex-col bg-black/40 border-r border-white/5 ${activeMatch ? 'hidden md:flex' : 'flex'}`}>
-          <div className="p-5 border-b border-white/5 flex justify-between items-center bg-black/20 backdrop-blur-md">
+      <div className={`flex-1 flex flex-col bg-black/40 border-r border-white/5 ${activeMatch ? 'hidden md:flex' : 'flex'} h-full overflow-hidden`}>
+          <div className="p-5 border-b border-white/5 flex justify-between items-center bg-black/20 backdrop-blur-md shrink-0">
               <h2 className="text-xl font-black italic tracking-tight">MESSAGES</h2>
-              <button onClick={onClose} aria-label="Close Chat" className="p-2 hover:bg-white/10 rounded-full transition-colors"><X/></button>
+              <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors"><X/></button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 scrollbar-hide">
@@ -72,8 +70,7 @@ export const ChatModal = ({ user, onClose }) => {
             key={activeMatch.id} 
             activeMatch={activeMatch} 
             user={user} 
-            onBack={() => setActiveTab(null)}
-            setActiveMatch={setActiveMatch}
+            onBack={() => setActiveMatch(null)}
         />
       ) : (
         <div className="hidden md:flex flex-[2] flex-col items-center justify-center bg-[#080808] opacity-50">
@@ -85,7 +82,7 @@ export const ChatModal = ({ user, onClose }) => {
   );
 };
 
-// --- COMPONENT: MATCH ITEM (Memoized) ---
+// --- COMPONENT: MATCH ITEM ---
 const MatchItem = memo(({ match, isActive, onSelect }) => (
     <motion.div 
         layout
@@ -108,19 +105,17 @@ const MatchItem = memo(({ match, isActive, onSelect }) => (
     </motion.div>
 ));
 
-// --- COMPONENT: CHAT WINDOW (Fixed Layout) ---
-const ChatWindow = ({ activeMatch, user, setActiveMatch }) => {
+// --- COMPONENT: CHAT WINDOW ---
+const ChatWindow = ({ activeMatch, user, onBack }) => {
     const [messages, setMessages] = useState([]);
     const [showOptions, setShowOptions] = useState(false);
     const messagesEndRef = useRef(null);
 
-    // Subscribe to Messages
     useEffect(() => {
         const unsub = subscribeToMessages(activeMatch.id, setMessages);
         return () => unsub();
     }, [activeMatch.id]);
 
-    // Auto-scroll to bottom on new messages
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
@@ -128,16 +123,16 @@ const ChatWindow = ({ activeMatch, user, setActiveMatch }) => {
     const handleUnmatch = async () => {
         if (window.confirm(`Unmatch with ${activeMatch.name}?`)) {
             await unmatchUser(user.uid, activeMatch.theirId);
-            setActiveMatch(null);
+            onBack();
         }
     };
 
     return (
-        <div className="flex-[2] flex flex-col bg-[#080808] h-full overflow-hidden">
-            {/* Header - ✅ Fixed height and position */}
+        <div className="flex-[2] flex flex-col bg-[#080808] h-full overflow-hidden relative">
+            {/* Header: Shrink-0 ensures it stays at the top */}
             <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between bg-black/60 backdrop-blur-xl shrink-0 z-20">
                 <div className="flex items-center gap-3">
-                    <button onClick={() => setActiveMatch(null)} className="md:hidden p-2 -ml-2 hover:bg-white/10 rounded-full"><ChevronLeft/></button>
+                    <button onClick={onBack} className="md:hidden p-2 -ml-2 hover:bg-white/10 rounded-full"><ChevronLeft/></button>
                     <img src={activeMatch.img || 'https://via.placeholder.com/150'} alt={activeMatch.name} className="w-10 h-10 rounded-full object-cover border border-white/10"/>
                     <h3 className="font-bold text-sm leading-tight">{activeMatch.name}</h3>
                 </div>
@@ -162,29 +157,28 @@ const ChatWindow = ({ activeMatch, user, setActiveMatch }) => {
                 </div>
             </div>
 
-            {/* Messages List - ✅ Added overflow-y-auto to allow scrolling within this area only */}
+            {/* Messages List: Flex-1 takes all available middle space */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
                 <div className="text-center py-8 opacity-30">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                         Match created {safeFormatDate(activeMatch.timestamp)}
                     </p>
                 </div>
-
                 {messages.map((msg) => (
                     <MessageBubble key={msg.id} msg={msg} isMe={msg.senderId === user.uid} />
                 ))}
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area - ✅ Shrink-0 ensures it stays visible at bottom */}
-            <div className="shrink-0">
+            {/* ✅ FIXED INPUT AREA: shrink-0 and dvh-aware padding */}
+            <div className="shrink-0 bg-black/80 backdrop-blur-xl border-t border-white/10 safe-area-bottom">
                 <ChatInput activeMatchId={activeMatch.id} userId={user.uid} />
             </div>
         </div>
     );
 };
 
-// --- COMPONENT: MESSAGE BUBBLE (Memoized) ---
+// --- COMPONENT: MESSAGE BUBBLE ---
 const MessageBubble = memo(({ msg, isMe }) => (
     <motion.div 
         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -202,43 +196,40 @@ const MessageBubble = memo(({ msg, isMe }) => (
     </motion.div>
 ));
 
-// --- COMPONENT: CHAT INPUT (Isolated State) ---
+// --- COMPONENT: CHAT INPUT ---
 const ChatInput = ({ activeMatchId, userId }) => {
     const [inputText, setInputText] = useState("");
 
     const handleSend = async (e) => {
         e.preventDefault();
         if (!inputText.trim()) return;
-        
         const tempText = inputText;
-        setInputText(""); // Optimistic Clear
-        
+        setInputText(""); 
         try {
             await sendMessage(activeMatchId, userId, tempText);
         } catch (e) {
             console.error("Failed to send", e);
-            setInputText(tempText); // Revert on fail
+            setInputText(tempText);
         }
     };
 
     return (
-        <div className="p-4 bg-black/80 backdrop-blur-xl border-t border-white/10 pb-8 md:pb-4">
+        // ✅ Added bottom padding specifically for Safari search bar/keyboard
+        <div className="p-4 pb-[env(safe-area-inset-bottom,24px)]">
             <form onSubmit={handleSend} className="flex items-center gap-3 bg-[#1a1a1a] border border-white/10 rounded-full px-2 py-2 shadow-lg focus-within:border-pink-500/50 transition-colors">
                 <button type="button" className="p-2 text-slate-400 hover:text-pink-500 transition-colors rounded-full hover:bg-white/5">
                     <ImageIcon size={20}/>
                 </button>
-                
                 <input 
                     className="flex-1 bg-transparent border-none outline-none text-white text-sm px-2 placeholder:text-slate-500"
                     placeholder="Type a message..."
                     value={inputText}
                     onChange={e => setInputText(e.target.value)}
                 />
-                
                 <button 
                     type="submit" 
                     disabled={!inputText.trim()}
-                    className="p-2.5 bg-pink-600 rounded-full text-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-pink-500 transition-colors shadow-lg shadow-pink-600/20"
+                    className="p-2.5 bg-pink-600 rounded-full text-white disabled:opacity-50 hover:bg-pink-500 transition-colors shadow-lg"
                 >
                     <Send size={18} fill="currentColor" className="ml-0.5" />
                 </button>
