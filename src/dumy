@@ -400,14 +400,10 @@ export default function App() {
               <ChatModal user={user} onClose={() => setActiveTab('swipe')} />
           )}
 
-          {/* LIKES VAULT */}
-{activeTab === 'likes' && (
-    <LikesPage 
-        currentUser={user} 
-        onBack={() => setActiveTab('swipe')} 
-        onNavigateToChat={() => setActiveTab('chat')} // ✅ ADD THIS PROP
-    />
-)}
+          {/* LIKES VAULT (NEW) */}
+          {activeTab === 'likes' && (
+              <LikesPage currentUser={user} onBack={() => setActiveTab('swipe')} />
+          )}
           
           {selectedPerson && <DetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />}
           

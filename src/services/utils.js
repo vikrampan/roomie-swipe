@@ -38,35 +38,57 @@ export const triggerHaptic = (type = 'light') => {
   window.navigator.vibrate(patterns[type] || patterns.light);
 };
 
-// ✅ NEW: Returns Blob for Firebase Storage (COST-EFFICIENT)
+// ✅ NEW: God-Level "Frontend Shrink Ray"
+// 1. Resizes to 1080p (HD quality)
+// 2. Converts to WebP (Google's super-light format)
+// 3. Compresses to 80% quality
 export const compressImage = (file) => {
   return new Promise((resolve, reject) => {
+    // 1. Create a Reader
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = (e) => {
+
+    reader.onload = (event) => {
       const img = new Image();
-      img.src = e.target.result;
+      img.src = event.target.result;
+
       img.onload = () => {
+        // 2. Create a Canvas (The drawing board)
         const canvas = document.createElement('canvas');
-        const MAX = 600;
-        const scale = MAX / img.width;
-        canvas.width = MAX;
-        canvas.height = img.height * scale;
+        
+        // 3. Calculate new size (Max width 1080px)
+        const MAX_WIDTH = 1080;
+        const scaleSize = MAX_WIDTH / img.width;
+        
+        // If image is already small, don't scale it up
+        if (scaleSize >= 1) {
+            canvas.width = img.width;
+            canvas.height = img.height;
+        } else {
+            canvas.width = MAX_WIDTH;
+            canvas.height = img.height * scaleSize;
+        }
+
+        // 4. Draw image onto canvas
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
-        // ✅ Convert to Blob instead of Base64 (for Firebase Storage)
+
+        // 5. THE MAGIC: Export as WebP with 80% quality
+        // Note: 'image/webp' is supported in all modern browsers (Chrome, Edge, Firefox, Safari 14+)
         canvas.toBlob((blob) => {
-          if (blob) {
-            resolve(blob);
-          } else {
-            reject(new Error('Failed to create blob'));
-          }
-        }, 'image/jpeg', 0.6);
+            if (blob) {
+                // Return the clean Blob ready for Firebase
+                resolve(blob);
+            } else {
+                reject(new Error("Compression failed"));
+            }
+        }, 'image/webp', 0.8);
       };
-      img.onerror = () => reject(new Error('Failed to load image'));
+      
+      img.onerror = (err) => reject(new Error('Failed to load image'));
     };
-    reader.onerror = () => reject(new Error('Failed to read file'));
+    
+    reader.onerror = (err) => reject(new Error('Failed to read file'));
   });
 };
 

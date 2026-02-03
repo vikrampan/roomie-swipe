@@ -11,7 +11,7 @@ import { compressImage, getCityFromCoordinates } from '../services/utils';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { signOut, deleteUser } from 'firebase/auth';
 import { auth, storage } from '../firebase';
-import { PhoneVerifier } from './PhoneVerifier'; 
+// import { PhoneVerifier } from './PhoneVerifier'; // Commented out as we use inline verification now
 
 // ==========================================
 // 1. HELPER COMPONENTS (Moved to TOP to fix crash)
@@ -287,15 +287,23 @@ const PhotosStep = memo(({ formData, updateField, user, showToast }) => {
         setPhotoLoading(true);
         try {
           const uploadPromises = files.map(async (file, index) => {
+            // 1. COMPRESS ON PHONE (Uses new utils.js WebP compressor)
             const blob = await compressImage(file);
-            const fileName = `images_${Date.now()}_${index}.jpg`;
+            
+            // 2. RENAME TO .WEBP (Crucial for consistency)
+            const fileName = `images_${Date.now()}_${index}.webp`;
+            
+            // 3. UPLOAD TINY FILE
             const storageRef = ref(storage, `users/${user.uid}/${fileName}`);
             await uploadBytes(storageRef, blob);
             return await getDownloadURL(storageRef);
           });
           const urls = await Promise.all(uploadPromises);
           updateField('images', [...formData.images, ...urls]);
-        } catch (error) { showToast("Upload failed"); }
+        } catch (error) { 
+            console.error(error);
+            showToast("Upload failed"); 
+        }
         setPhotoLoading(false);
     };
 

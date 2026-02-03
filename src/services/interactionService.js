@@ -2,29 +2,26 @@ import { doc, runTransaction, setDoc, deleteDoc, getDoc, serverTimestamp } from 
 import { db } from '../firebase';
 
 // --- HELPER: Get Minimal Profile for Match List ---
-// This ensures the Match List shows the correct photo (Room vs Face)
-// and saves a "snapshot" so the chat loads instantly without extra reads.
 const getProfileSnapshot = async (uid) => {
     try {
         const snap = await getDoc(doc(db, "users", uid));
         if (snap.exists()) {
             const data = snap.data();
             
-            // LOGIC: If they are a Host, show Room Photo. If Hunter, show Face.
             let displayImage = "https://via.placeholder.com/150";
 
             if (data.userRole === 'host' && data.roomImages && data.roomImages.length > 0) {
-                displayImage = data.roomImages[0]; // Show Room
+                displayImage = data.roomImages[0]; 
             } else if (data.images && data.images.length > 0) {
-                displayImage = data.images[0]; // Show Face
+                displayImage = data.images[0]; 
             } else if (data.img) {
-                displayImage = data.img; // Fallback
+                displayImage = data.img; 
             }
 
             return { 
                 name: data.name || "Unknown", 
                 img: displayImage,
-                userRole: data.userRole || "hunter", // Useful for UI logic later
+                userRole: data.userRole || "hunter", 
                 city: data.city || ""
             };
         }
@@ -38,54 +35,54 @@ const getProfileSnapshot = async (uid) => {
 export const swipeRight = async (myUid, targetUid) => {
   if (!myUid || !targetUid) return { isMatch: false };
 
-  // Generate Match ID (Always sorted alphabetically so A->B and B->A produce same ID)
+  // Match ID (Alphabetical Order ensuring unique ID for the pair)
   const matchId = [myUid, targetUid].sort().join("_");
+  
+  // Interaction IDs
+  const myInteractionId = `${myUid}_${targetUid}`;
+  const theirInteractionId = `${targetUid}_${myUid}`;
 
   try {
-    // 1. Pre-fetch profiles (Read before Write rule for efficiency)
-    // We do this outside the transaction to keep the DB lock time short.
+    // 1. Pre-fetch profiles
     const myProfile = await getProfileSnapshot(myUid);
     const theirProfile = await getProfileSnapshot(targetUid);
 
     return await runTransaction(db, async (transaction) => {
-      // 2. Check if they ALREADY liked us
-      const reverseLikeRef = doc(db, "likes", `${targetUid}_${myUid}`);
+      // 2. Check if they ALREADY liked us (Look in 'interactions' collection)
+      const reverseLikeRef = doc(db, "interactions", theirInteractionId);
       const reverseLikeSnap = await transaction.get(reverseLikeRef);
 
-      // 3. Record OUR like in the database
-      const likeRef = doc(db, "likes", `${myUid}_${targetUid}`);
+      // Check if the reverse document exists AND is a like
+      const isMatch = reverseLikeSnap.exists() && reverseLikeSnap.data().type === 'like';
+
+      // 3. Record OUR like in the 'interactions' database
+      const likeRef = doc(db, "interactions", myInteractionId);
       transaction.set(likeRef, {
-        from: myUid,
-        to: targetUid,
-        timestamp: Date.now()
+        fromUserId: myUid, // Changed from 'from' to 'fromUserId' to match Vault logic
+        toUserId: targetUid, // Changed from 'to' to 'toUserId' to match Vault logic
+        type: 'like',
+        timestamp: serverTimestamp(),
+        isMatch: isMatch,
+        isRevealed: false // CRITICAL: Starts locked for the other person
       });
 
-      // 4. CHECK FOR MATCH (Mutual Like)
-      if (reverseLikeSnap.exists()) {
+      // 4. IF IT IS A MATCH (Mutual Like)
+      if (isMatch) {
         const matchRef = doc(db, "matches", matchId);
         
-        // Create the Match Document
         transaction.set(matchRef, {
-          users: [myUid, targetUid], // Array for querying "matches where array-contains myUid"
-          
-          // Denormalized Profiles (Saves reads later!)
+          users: [myUid, targetUid], 
           profiles: {
             [myUid]: myProfile,
             [targetUid]: theirProfile
           },
-          
           lastActivity: serverTimestamp(),
           timestamp: Date.now(),
-          
-          // Initial System Message
           lastMsg: "It's a Match! Say hello 👋",
           lastSenderId: "system",
-          
-          // Unread Indicators
           readStatus: { [myUid]: false, [targetUid]: false } 
         });
         
-        // Return match data so the UI can show the popup
         return { isMatch: true, matchData: theirProfile };
       }
       
@@ -101,12 +98,16 @@ export const swipeRight = async (myUid, targetUid) => {
 export const swipeLeft = async (myUid, targetUid) => {
   if (!myUid || !targetUid) return;
   try {
-    // Just record the pass so we don't show them again
-    await setDoc(doc(db, "passes", `${myUid}_${targetUid}`), {
-        from: myUid,
-        to: targetUid,
-        timestamp: Date.now()
+    // Record the pass in 'interactions' so we don't show them again
+    // UPDATED: Writing to 'interactions' instead of 'passes'
+    const interactionId = `${myUid}_${targetUid}`;
+    await setDoc(doc(db, "interactions", interactionId), {
+        fromUserId: myUid,
+        toUserId: targetUid,
+        type: 'nope',
+        timestamp: serverTimestamp()
     });
+    return { success: true };
   } catch (e) { 
     console.error("Pass Error:", e); 
   }
@@ -119,16 +120,14 @@ export const unmatchUser = async (myUid, targetUid) => {
   const matchId = [myUid, targetUid].sort().join("_");
   
   try {
-    // Delete the match conversation
+    // 1. Delete the match conversation
     await deleteDoc(doc(db, "matches", matchId));
     
-    // Delete BOTH likes so they don't rematch instantly
-    await deleteDoc(doc(db, "likes", `${myUid}_${targetUid}`));
-    await deleteDoc(doc(db, "likes", `${targetUid}_${myUid}`));
+    // 2. Delete BOTH interactions
+    // UPDATED: Deleting from 'interactions' instead of 'likes'
+    await deleteDoc(doc(db, "interactions", `${myUid}_${targetUid}`));
+    await deleteDoc(doc(db, "interactions", `${targetUid}_${myUid}`));
     
-    // Optional: Add to 'blocked' collection if you want to ban them permanently
-    // await setDoc(doc(db, "blocks", `${myUid}_${targetUid}`), { timestamp: Date.now() });
-
     return true;
   } catch (e) { 
     console.error("Unmatch Error:", e);
