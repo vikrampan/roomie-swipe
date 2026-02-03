@@ -69,10 +69,11 @@ export const ChatModal = ({ user, onClose }) => {
       {/* RIGHT SIDE: CHAT WINDOW */}
       {activeMatch ? (
         <ChatWindow 
-            key={activeMatch.id} // Key ensures component remounts on new match
+            key={activeMatch.id} 
             activeMatch={activeMatch} 
             user={user} 
-            onBack={() => setActiveMatch(null)}
+            onBack={() => setActiveTab(null)}
+            setActiveMatch={setActiveMatch}
         />
       ) : (
         <div className="hidden md:flex flex-[2] flex-col items-center justify-center bg-[#080808] opacity-50">
@@ -107,8 +108,8 @@ const MatchItem = memo(({ match, isActive, onSelect }) => (
     </motion.div>
 ));
 
-// --- COMPONENT: CHAT WINDOW (Logic Isolated) ---
-const ChatWindow = ({ activeMatch, user, onBack }) => {
+// --- COMPONENT: CHAT WINDOW (Fixed Layout) ---
+const ChatWindow = ({ activeMatch, user, setActiveMatch }) => {
     const [messages, setMessages] = useState([]);
     const [showOptions, setShowOptions] = useState(false);
     const messagesEndRef = useRef(null);
@@ -119,7 +120,7 @@ const ChatWindow = ({ activeMatch, user, onBack }) => {
         return () => unsub();
     }, [activeMatch.id]);
 
-    // Auto-scroll
+    // Auto-scroll to bottom on new messages
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
@@ -127,16 +128,16 @@ const ChatWindow = ({ activeMatch, user, onBack }) => {
     const handleUnmatch = async () => {
         if (window.confirm(`Unmatch with ${activeMatch.name}?`)) {
             await unmatchUser(user.uid, activeMatch.theirId);
-            onBack();
+            setActiveMatch(null);
         }
     };
 
     return (
-        <div className="flex-[2] flex flex-col bg-[#080808] relative">
-            {/* Header */}
-            <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between bg-black/60 backdrop-blur-xl absolute top-0 w-full z-10">
+        <div className="flex-[2] flex flex-col bg-[#080808] h-full overflow-hidden">
+            {/* Header - ✅ Fixed height and position */}
+            <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between bg-black/60 backdrop-blur-xl shrink-0 z-20">
                 <div className="flex items-center gap-3">
-                    <button onClick={onBack} className="md:hidden p-2 -ml-2 hover:bg-white/10 rounded-full"><ChevronLeft/></button>
+                    <button onClick={() => setActiveMatch(null)} className="md:hidden p-2 -ml-2 hover:bg-white/10 rounded-full"><ChevronLeft/></button>
                     <img src={activeMatch.img || 'https://via.placeholder.com/150'} alt={activeMatch.name} className="w-10 h-10 rounded-full object-cover border border-white/10"/>
                     <h3 className="font-bold text-sm leading-tight">{activeMatch.name}</h3>
                 </div>
@@ -161,8 +162,8 @@ const ChatWindow = ({ activeMatch, user, onBack }) => {
                 </div>
             </div>
 
-            {/* Messages List */}
-            <div className="flex-1 overflow-y-auto p-4 pt-20 pb-4 space-y-4">
+            {/* Messages List - ✅ Added overflow-y-auto to allow scrolling within this area only */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
                 <div className="text-center py-8 opacity-30">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                         Match created {safeFormatDate(activeMatch.timestamp)}
@@ -175,8 +176,10 @@ const ChatWindow = ({ activeMatch, user, onBack }) => {
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Input Area (Isolated) */}
-            <ChatInput activeMatchId={activeMatch.id} userId={user.uid} />
+            {/* Input Area - ✅ Shrink-0 ensures it stays visible at bottom */}
+            <div className="shrink-0">
+                <ChatInput activeMatchId={activeMatch.id} userId={user.uid} />
+            </div>
         </div>
     );
 };
@@ -244,12 +247,12 @@ const ChatInput = ({ activeMatchId, userId }) => {
     );
 };
 
-// --- UTILS: SAFE DATE FORMATTING (Fixes "Invalid Date" Crash) ---
+// --- UTILS ---
 const safeFormatTime = (timestamp) => {
     if (!timestamp) return "";
     try {
         const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-        if (isNaN(date.getTime())) return ""; // Handle invalid dates
+        if (isNaN(date.getTime())) return ""; 
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     } catch (e) { return ""; }
 };
