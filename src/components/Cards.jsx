@@ -1,7 +1,8 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import TinderCard from 'react-tinder-card';
 import { MapPin, Sparkles, ChevronUp, IndianRupee, ShieldCheck, Mail } from 'lucide-react';
 import { triggerHaptic, calculateCompatibility } from '../services/utils';
+import { SecureImage } from './SecureImage'; // ✅ Added SecureImage Import
 
 export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -82,7 +83,6 @@ export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) =
   };
 
   return (
-    // ✅ FIX 1: Dynamic Height (70vh) to fit mobile screens + Buttons
     <div className="absolute w-[95vw] max-w-sm h-[70vh] select-none flex justify-center items-center">
       <TinderCard
         className="absolute w-full h-full shadow-none"
@@ -104,12 +104,11 @@ export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) =
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
-          {/* Main Image */}
-          <img 
+          {/* Main Image - ✅ REPLACED with SecureImage Canvas Logic */}
+          <SecureImage 
             src={images[currentIndex]} 
-            className="w-full h-full object-cover pointer-events-none select-none bg-gray-900"
-            alt={person.name}
-            draggable="false"
+            className="w-full h-full bg-gray-900"
+            isBlurred={false} 
           />
           
           {/* Gradients (Optimized for Mobile) */}
@@ -160,7 +159,6 @@ export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) =
           )}
 
           {/* --- BOTTOM INFO PANEL --- */}
-          {/* ✅ FIX 2: Increased padding and z-index to ensure clickability */}
           <div 
             className="info-trigger absolute bottom-0 left-0 w-full p-5 pb-6 z-30 flex flex-col justify-end group/info cursor-pointer active:scale-[0.98] transition-transform bg-gradient-to-t from-black/90 to-transparent"
             onClick={(e) => {
@@ -177,7 +175,6 @@ export const Card = ({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) =
                         <span className="text-[9px] font-bold text-emerald-400 uppercase">Phone Verified</span>
                     </div>
                 )}
-                {/* Default Email Verified Badge */}
                 <div className="px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 rounded-md flex items-center gap-1">
                     <Mail size={10} className="text-blue-400"/>
                     <span className="text-[9px] font-bold text-blue-400 uppercase">Verified</span>

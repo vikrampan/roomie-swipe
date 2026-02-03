@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore';
-import { swipeRight } from '../services/interactionService'; // ✅ Import Swipe Function
+import { swipeRight } from '../services/interactionService';
+import { SecureImage } from '../components/SecureImage'; // ✅ Ensure this component exists
 
 const SPONSORS = [
   {
@@ -54,9 +55,9 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
                 if (userSnap.exists()) {
                     return {
                         interactionId: interactionDoc.id,
-                        id: data.fromUserId, // CRITICAL: Need UID for matching
+                        id: data.fromUserId, 
                         ...userSnap.data(),
-                        isMatch: data.isMatch || false, // Check if we already matched back
+                        isMatch: data.isMatch || false, 
                         isRevealed: data.isRevealed || false
                     };
                 } else {
@@ -94,7 +95,7 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
     setAdModal(null);
   };
 
-  // --- 4. MATCH LOGIC (The Fix) ---
+  // --- 4. MATCH LOGIC ---
   const handleAcceptMatch = async (profile) => {
     // Call swipeRight. Since they already liked you, this GUARANTEES a match.
     const result = await swipeRight(currentUser.uid, profile.id);
@@ -144,7 +145,7 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
                  key={profile.interactionId} 
                  profile={profile} 
                  onUnlock={() => setAdModal({ profile, sponsor: SPONSORS[i % SPONSORS.length] })} 
-                 onAccept={() => handleAcceptMatch(profile)} // Pass the handler
+                 onAccept={() => handleAcceptMatch(profile)} 
                />
              ))}
            </div>
@@ -167,14 +168,15 @@ export const LikesPage = ({ currentUser, onBack, onNavigateToChat }) => {
 
 const LikeCard = ({ profile, onUnlock, onAccept }) => {
   const isLocked = !profile.isRevealed;
-  const isAlreadyMatched = profile.isMatch; // Check if we already matched them
+  const isAlreadyMatched = profile.isMatch;
 
   return (
     <div className="relative aspect-[3/4] bg-white/5 rounded-2xl overflow-hidden border border-white/10 group">
-       {/* IMAGE LAYER */}
-       <img 
+       {/* IMAGE LAYER - SECURE CANVAS REPLACEMENT */}
+       <SecureImage 
          src={profile.images?.[0] || "https://via.placeholder.com/400"} 
-         className={`w-full h-full object-cover transition-all duration-700 ${isLocked ? 'blur-xl scale-110 opacity-50' : ''}`}
+         isBlurred={isLocked}
+         className="w-full h-full"
        />
 
        {/* CONTENT LAYER */}
@@ -200,7 +202,6 @@ const LikeCard = ({ profile, onUnlock, onAccept }) => {
                 <p className="text-xs font-bold text-slate-300 mt-1 flex items-center gap-1"><ShieldCheck size={12} className="text-emerald-500"/> {profile.occupation}</p>
                 
                 <div className="mt-3 flex gap-2">
-                    {/* LOGIC: If already matched, show Chat. If not, show Match. */}
                     {isAlreadyMatched ? (
                         <button onClick={onAccept} className="flex-1 py-3 bg-white text-black rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2">
                              <MessageCircle size={14}/> Chat
