@@ -6,10 +6,10 @@ import {
 } from 'lucide-react';
 import { auth } from '../firebase';
 import confetti from 'canvas-confetti';
+import { SecureImage } from './SecureImage'; // ✅ Import your secure canvas component
 
 // --- 1. MATCH POPUP (Celebration) ---
 export const MatchPopup = memo(({ person, onClose, onChat }) => {
-  // Trigger Confetti on Mount
   useEffect(() => {
     const duration = 2000;
     const end = Date.now() + duration;
@@ -29,7 +29,6 @@ export const MatchPopup = memo(({ person, onClose, onChat }) => {
     >
       <div className="w-full max-w-sm flex flex-col items-center text-center relative">
         
-        {/* Animated Text */}
         <motion.div 
           initial={{ scale: 0, rotate: -20 }} 
           animate={{ scale: 1, rotate: 0 }} 
@@ -42,31 +41,32 @@ export const MatchPopup = memo(({ person, onClose, onChat }) => {
            <Sparkles className="absolute -top-8 -right-8 text-yellow-400 animate-pulse" size={48} fill="currentColor"/>
         </motion.div>
 
-        {/* Profile Pictures overlapping */}
+        {/* Profile Pictures overlapping using SecureImage */}
         <div className="flex items-center justify-center mb-12 relative h-32 w-full">
-            <motion.img 
-              initial={{ x: -100, opacity: 0 }} animate={{ x: -20, opacity: 1 }} 
-              src={auth.currentUser?.photoURL} 
-              className="w-28 h-28 rounded-full border-4 border-black object-cover absolute z-10 shadow-2xl"
-            />
+            <div className="w-28 h-28 rounded-full border-4 border-black absolute z-10 shadow-2xl overflow-hidden -translate-x-5">
+                <SecureImage 
+                  src={auth.currentUser?.photoURL} 
+                  className="w-full h-full"
+                />
+            </div>
             <motion.div 
               initial={{ scale: 0 }} animate={{ scale: 1 }} 
               className="z-20 bg-white p-2 rounded-full shadow-xl absolute"
             >
                <Heart size={24} className="text-pink-600 fill-pink-600"/>
             </motion.div>
-            <motion.img 
-              initial={{ x: 100, opacity: 0 }} animate={{ x: 20, opacity: 1 }} 
-              src={person.img} 
-              className="w-28 h-28 rounded-full border-4 border-black object-cover absolute z-10 shadow-2xl"
-            />
+            <div className="w-28 h-28 rounded-full border-4 border-black absolute z-10 shadow-2xl overflow-hidden translate-x-5">
+                <SecureImage 
+                  src={person.img} 
+                  className="w-full h-full"
+                />
+            </div>
         </div>
 
         <p className="text-slate-300 text-sm font-medium mb-8 max-w-[200px] leading-relaxed">
           You and <span className="text-white font-bold">{person.name}</span> vibe with each other!
         </p>
 
-        {/* Action Buttons */}
         <button 
           onClick={onChat} 
           className="w-full bg-gradient-to-r from-pink-600 to-rose-600 text-white font-black py-4 rounded-2xl text-lg flex items-center justify-center gap-2 shadow-lg hover:scale-105 transition-transform"
@@ -86,10 +86,13 @@ export const MatchPopup = memo(({ person, onClose, onChat }) => {
 
 // --- 2. DETAIL MODAL (Full Profile View) ---
 export const DetailModal = memo(({ person, onClose }) => {
-  // Logic: Use Room Photo as cover if Host, otherwise use Profile Photo
-  const coverImage = (person.userRole === 'host' && person.roomImages?.length > 0) 
+  // Select the cover image source
+  const coverImageSrc = (person.userRole === 'host' && person.roomImages?.length > 0) 
     ? person.roomImages[0] 
     : (person.images?.[0] || person.img);
+
+  // Merge all available photos for the gallery
+  const galleryImages = [...(person.roomImages || []), ...(person.images || [])];
 
   return (
     <motion.div 
@@ -113,16 +116,18 @@ export const DetailModal = memo(({ person, onClose }) => {
 
         <div className="flex-1 overflow-y-auto scrollbar-hide relative bg-[#0a0a0a]">
             
-            {/* HERO COVER IMAGE */}
+            {/* HERO COVER IMAGE - PROTECTED BY CANVAS */}
             <div className="h-[50vh] w-full relative">
-                <img src={coverImage} className="w-full h-full object-cover" />
+                <SecureImage 
+                    src={coverImageSrc} 
+                    className="w-full h-full"
+                />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent"/>
-                <div className="absolute bottom-0 left-0 p-8 w-full">
+                <div className="absolute bottom-0 left-0 p-8 w-full pointer-events-none">
                     <h1 className="text-4xl font-black italic text-white tracking-tighter drop-shadow-lg mb-2">
                         {person.name} <span className="text-2xl not-italic font-medium text-slate-400">{person.age}</span>
                     </h1>
                     
-                    {/* VERIFICATION BADGES */}
                     <div className="flex items-center gap-2 mb-2">
                         {person.isPhoneVerified && (
                             <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-md text-[10px] font-bold uppercase flex items-center gap-1">
@@ -143,7 +148,6 @@ export const DetailModal = memo(({ person, onClose }) => {
             {/* CONTENT BODY */}
             <div className="px-8 pb-12 space-y-8">
                 
-                {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white/5 border border-white/5 p-4 rounded-3xl">
                         <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Rent</p>
@@ -159,7 +163,6 @@ export const DetailModal = memo(({ person, onClose }) => {
                     </div>
                 </div>
 
-                {/* Host Specific Details (Only visible if Host) */}
                 {person.userRole === 'host' && (
                     <div className="bg-purple-900/10 border border-purple-500/20 p-4 rounded-3xl">
                         <h3 className="text-[10px] font-black text-purple-400 uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -176,13 +179,11 @@ export const DetailModal = memo(({ person, onClose }) => {
                     </div>
                 )}
 
-                {/* Bio Section */}
                 <div>
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">About</h3>
                     <p className="text-slate-200 text-lg leading-relaxed font-medium">"{person.bio || "Just a vibe waiting to happen."}"</p>
                 </div>
 
-                {/* Vibe Tags */}
                 <div>
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-3">My Vibe</h3>
                     <div className="flex flex-wrap gap-2">
@@ -194,7 +195,6 @@ export const DetailModal = memo(({ person, onClose }) => {
                     </div>
                 </div>
 
-                {/* Lifestyle Details */}
                 <div className="bg-white/5 rounded-3xl p-6 border border-white/5">
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">Lifestyle Check</h3>
                     <div className="space-y-4">
@@ -206,10 +206,14 @@ export const DetailModal = memo(({ person, onClose }) => {
                     </div>
                 </div>
 
-                {/* Photo Gallery (Merges Room & Personal Photos) */}
+                {/* PHOTO GALLERY - ALL IMAGES PROTECTED BY SECUREIMAGE CANVAS */}
                 <div className="grid grid-cols-2 gap-3 pt-4">
-                    {[...(person.roomImages || []), ...(person.images || [])].map((img, i) => (
-                        <img key={i} src={img} className="w-full h-48 object-cover rounded-3xl border border-white/5 bg-white/5" alt="Gallery" />
+                    {galleryImages.map((img, i) => (
+                        <SecureImage 
+                            key={i} 
+                            src={img} 
+                            className="w-full h-48 rounded-3xl border border-white/5 bg-white/5" 
+                        />
                     ))}
                 </div>
             </div>
@@ -219,7 +223,6 @@ export const DetailModal = memo(({ person, onClose }) => {
   );
 });
 
-// Helper for Detail Row
 const DetailRow = ({ icon, label, value }) => (
     <div className="flex items-center justify-between border-b border-white/5 pb-3 last:border-0 last:pb-0">
         <span className="flex items-center gap-3 text-sm font-medium text-slate-400">
