@@ -105,7 +105,7 @@ export const PhoneVerifier = ({ onVerified, initialNumber }) => {
     }
   };
 
-  // --- 3. VERIFY OTP ---
+  // --- 3. VERIFY OTP (Updated for Duplicate Check) ---
   const verifyOtp = async () => {
     if (otp.length !== 6) return;
     
@@ -113,13 +113,14 @@ export const PhoneVerifier = ({ onVerified, initialNumber }) => {
     setError('');
     
     try {
-      // Confirm the code
+      // 1. Attempt to link the credential
       await window.confirmationResult.confirm(otp);
       
+      // 2. If successful, update state
       setStep('VERIFIED');
       setLoading(false);
       
-      // Notify parent component to update FormData
+      // 3. Notify parent component
       if (onVerified) {
         onVerified("+91" + phoneNumber);
       }
@@ -128,15 +129,19 @@ export const PhoneVerifier = ({ onVerified, initialNumber }) => {
       setLoading(false);
       console.error("OTP Error:", error);
       
-      // Handle the case where the user entered the code correctly but the merge failed
-      if (error.code === 'auth/credential-already-in-use') {
-         setError("This number is already taken by another user.");
-      } else {
+      // ✅ CRITICAL CHECK: Detect duplicate phone number
+      if (
+          error.code === 'auth/credential-already-in-use' || 
+          error.code === 'auth/account-exists-with-different-credential'
+      ) {
+         setError("This phone number is already registered with another account.");
+      } else if (error.code === 'auth/invalid-verification-code') {
          setError("Invalid OTP. Please check the code.");
+      } else {
+         setError("Verification failed. Please try again.");
       }
     }
   };
-
   // --- 4. RENDER STATES ---
 
   // State A: Success
