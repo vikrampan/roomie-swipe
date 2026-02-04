@@ -4,17 +4,17 @@ import {
   X, Camera, MapPin, Loader2, Check, User, Briefcase, IndianRupee, 
   LocateFixed, LogOut, Cloud, Moon, Sun, Wine, Heart, 
   Clock, Home, ChevronLeft, Star,
-  Building, ArrowRight, Save, Image as ImageIcon, ShieldCheck, Send, KeyRound, Phone
+  Building, ArrowRight, Save, Image as ImageIcon, ShieldCheck, Send, KeyRound, Phone, Trash2
 } from 'lucide-react';
 import { saveProfile, deleteMyProfile } from '../services/profileService';
 import { compressImage, getCityFromCoordinates } from '../services/utils';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { signOut, deleteUser } from 'firebase/auth';
 import { auth, storage } from '../firebase';
-// import { PhoneVerifier } from './PhoneVerifier'; // Commented out as we use inline verification now
+import { PhoneVerifier } from './PhoneVerifier'; 
 
 // ==========================================
-// 1. HELPER COMPONENTS (Moved to TOP to fix crash)
+// 1. HELPER COMPONENTS
 // ==========================================
 
 const SectionHeader = memo(({ icon, title, desc }) => (
@@ -103,8 +103,12 @@ const WizardHeader = memo(({ currentStep, onCancel, onPrev, isSaving }) => (
 // ==========================================
 
 const IdentityStep = memo(({ formData, updateField, isExistingUser }) => {
-    const [codeSent, setCodeSent] = useState(false);
-    const [otp, setOtp] = useState("");
+    
+    // Callback when phone is successfully verified
+    const handlePhoneVerified = useCallback((verifiedNumber) => {
+        updateField('phoneNumber', verifiedNumber);
+        updateField('isPhoneVerified', true);
+    }, [updateField]);
 
     return (
         <div className="space-y-8 animate-in slide-in-from-right-4 fade-in duration-300">
@@ -138,59 +142,22 @@ const IdentityStep = memo(({ formData, updateField, isExistingUser }) => {
                         <SelectionGroup label="Gender" options={[{value: 'Male'}, {value: 'Female'}, {value: 'Other'}]} selected={formData.gender} onSelect={v => updateField('gender', v)} />
                     </div>
                     
-                    {/* --- RECTIFIED PHONE VERIFICATION UI --- */}
+                    {/* REAL PHONE VERIFICATION */}
                     <div className="pt-4">
                         <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block ml-4">Phone Number</label>
                         {formData.isPhoneVerified ? (
                             <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl flex items-center gap-3">
                                 <ShieldCheck size={20} className="text-emerald-500"/>
-                                <span className="text-sm font-bold text-emerald-500">{formData.phoneNumber}</span>
+                                <div>
+                                    <p className="text-sm font-bold text-emerald-500">Verified</p>
+                                    <p className="text-xs text-emerald-400/80">{formData.phoneNumber}</p>
+                                </div>
                             </div>
                         ) : (
-                            <div className="bg-white/5 border border-white/10 p-4 rounded-3xl space-y-3">
-                                {/* Row 1: Phone Input */}
-                                <div className="relative">
-                                    <Phone size={16} className="absolute left-4 top-3.5 text-slate-400" />
-                                    <input 
-                                        type="tel" 
-                                        placeholder="+91 99999 99999" 
-                                        className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 pl-10 pr-4 text-sm font-bold text-white outline-none focus:border-pink-500/50"
-                                        value={formData.phoneNumber}
-                                        onChange={(e) => updateField('phoneNumber', e.target.value)}
-                                        disabled={codeSent}
-                                    />
-                                </div>
-
-                                {!codeSent ? (
-                                    // Row 2: Send Code (Full Width)
-                                    <button 
-                                        onClick={() => setCodeSent(true)} 
-                                        className="w-full py-3 bg-white text-black rounded-2xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-slate-200 transition-colors"
-                                    >
-                                        <Send size={14} /> Send Code
-                                    </button>
-                                ) : (
-                                    // Row 3: OTP + Verify (Horizontal)
-                                    <div className="flex gap-3 animate-in slide-in-from-bottom-2 fade-in">
-                                        <div className="relative flex-1">
-                                            <KeyRound size={16} className="absolute left-4 top-3.5 text-slate-400" />
-                                            <input 
-                                                type="number" 
-                                                placeholder="OTP" 
-                                                className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 pl-10 pr-2 text-sm font-bold text-white outline-none focus:border-emerald-500/50"
-                                                value={otp}
-                                                onChange={(e) => setOtp(e.target.value)}
-                                            />
-                                        </div>
-                                        <button 
-                                            onClick={() => updateField('isPhoneVerified', true)}
-                                            className="px-6 py-3 bg-emerald-500 text-white rounded-2xl font-bold text-xs hover:bg-emerald-600 transition-colors"
-                                        >
-                                            Verify
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                            <PhoneVerifier 
+                                initialNumber={formData.phoneNumber} 
+                                onVerified={handlePhoneVerified} 
+                            />
                         )}
                     </div>
                 </>
@@ -215,6 +182,7 @@ const IdentityStep = memo(({ formData, updateField, isExistingUser }) => {
 
 const DetailsStep = memo(({ formData, updateField, showToast }) => {
     const [locating, setLocating] = useState(false);
+    const [uploadingRoom, setUploadingRoom] = useState(false);
 
     const locate = async () => {
         setLocating(true);
@@ -235,6 +203,39 @@ const DetailsStep = memo(({ formData, updateField, showToast }) => {
         }, (err) => { showToast("Enable location services"); setLocating(false); });
     };
 
+    // ✅ ROOM IMAGE UPLOADER (For Hosts)
+    const handleRoomImageUpload = async (e) => {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+        
+        // Safety check: Prevent too many images
+        if ((formData.roomImages?.length || 0) + files.length > 5) {
+            showToast("Max 5 room photos allowed");
+            return;
+        }
+
+        setUploadingRoom(true);
+        try {
+            const uploadPromises = files.map(async (file, index) => {
+                // 1. Compress to WebP
+                const blob = await compressImage(file);
+                // 2. Upload to storage (using 'room_' prefix)
+                const fileName = `room_${Date.now()}_${index}.webp`;
+                const storageRef = ref(storage, `users/${auth.currentUser.uid}/${fileName}`);
+                await uploadBytes(storageRef, blob);
+                return await getDownloadURL(storageRef);
+            });
+
+            const newUrls = await Promise.all(uploadPromises);
+            updateField('roomImages', [...(formData.roomImages || []), ...newUrls]);
+            showToast(`${newUrls.length} room photos added`);
+        } catch (error) {
+            console.error(error);
+            showToast("Upload failed");
+        }
+        setUploadingRoom(false);
+    };
+
     return (
         <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300 pb-8">
             <InputBox label="Occupation" icon={<Briefcase size={14}/>} value={formData.occupation} onChange={v => updateField('occupation', v)} placeholder="Student / Job" />
@@ -247,7 +248,6 @@ const DetailsStep = memo(({ formData, updateField, showToast }) => {
                         <span className="text-sm font-black text-white block">{locating ? "Locating..." : formData.city}</span>
                     </div>
                 </div>
-                {/* RECTIFIED ICON: LocateFixed */}
                 <button onClick={locate} className="p-3 bg-white/10 hover:bg-white/20 rounded-xl transition-colors text-white">
                     <LocateFixed size={20}/>
                 </button>
@@ -255,11 +255,45 @@ const DetailsStep = memo(({ formData, updateField, showToast }) => {
 
             {formData.userRole === 'host' ? (
                 <>
+                    <SectionHeader icon={<Home size={16}/>} title="Room Details" desc="Tell us about your place" />
                     <InputBox label="Society Name" icon={<Building size={14}/>} value={formData.societyName} onChange={v => updateField('societyName', v)} placeholder="e.g. Prestige Shantiniketan" />
                     <SelectionGroup label="Furnishing" options={FURNISHING_OPTS} selected={formData.furnishing} onSelect={v => updateField('furnishing', v)} />
+                    
                     <div className="grid grid-cols-2 gap-4">
                         <InputBox label="Rent Ask" type="number" icon={<IndianRupee size={14}/>} value={formData.rent} onChange={v => updateField('rent', v)} placeholder="15000" />
                         <InputBox label="Available" type="date" value={formData.availableFrom} onChange={v => updateField('availableFrom', v)} />
+                    </div>
+
+                    {/* ✅ ROOM PHOTOS SECTION */}
+                    <div className="pt-4 border-t border-white/5">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase mb-3 block ml-4">Room Photos (Max 5)</label>
+                        <div className="grid grid-cols-3 gap-3">
+                            <label className="aspect-square bg-white/5 border-dashed border-2 border-white/10 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-pink-500/50 transition-colors">
+                                {uploadingRoom ? <Loader2 className="animate-spin text-pink-500"/> : <ImageIcon size={20} className="text-slate-500"/>}
+                                <span className="text-[9px] font-bold text-slate-500 mt-2">ADD</span>
+                                <input type="file" accept="image/*" multiple className="hidden" onChange={handleRoomImageUpload} />
+                            </label>
+
+                            <AnimatePresence>
+                                {(formData.roomImages || []).map((img, i) => (
+                                    <motion.div 
+                                        key={img}
+                                        initial={{ scale: 0.8, opacity: 0 }} 
+                                        animate={{ scale: 1, opacity: 1 }} 
+                                        exit={{ scale: 0, opacity: 0 }} 
+                                        className="relative aspect-square rounded-2xl overflow-hidden border border-white/10"
+                                    >
+                                        <img src={img} className="w-full h-full object-cover" />
+                                        <button 
+                                            onClick={() => updateField('roomImages', formData.roomImages.filter(url => url !== img))} 
+                                            className="absolute top-1 right-1 bg-black/60 p-1.5 rounded-full text-white hover:bg-red-500 transition-colors"
+                                        >
+                                            <Trash2 size={10}/>
+                                        </button>
+                                    </motion.div>
+                                ))}
+                            </AnimatePresence>
+                        </div>
                     </div>
                 </>
             ) : (
@@ -287,13 +321,10 @@ const PhotosStep = memo(({ formData, updateField, user, showToast }) => {
         setPhotoLoading(true);
         try {
           const uploadPromises = files.map(async (file, index) => {
-            // 1. COMPRESS ON PHONE (Uses new utils.js WebP compressor)
+            // 1. COMPRESS (WebP)
             const blob = await compressImage(file);
-            
-            // 2. RENAME TO .WEBP (Crucial for consistency)
+            // 2. UPLOAD
             const fileName = `images_${Date.now()}_${index}.webp`;
-            
-            // 3. UPLOAD TINY FILE
             const storageRef = ref(storage, `users/${user.uid}/${fileName}`);
             await uploadBytes(storageRef, blob);
             return await getDownloadURL(storageRef);
@@ -430,7 +461,7 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
             ...existingData,
             tags: existingData.tags || [],
             images: existingData.images || [],
-            roomImages: existingData.roomImages || [],
+            roomImages: existingData.roomImages || [], // Load existing room images
             name: existingData.name || "",
             bio: existingData.bio || "",
             userRole: existingData.userRole || "hunter"
@@ -509,7 +540,6 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
                 formData={formData} 
                 updateField={updateField} 
                 isExistingUser={isExistingUser} 
-                user={user}
             />
         )}
         {currentStep === 1 && (
