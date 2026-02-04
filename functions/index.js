@@ -1,99 +1,84 @@
-// --- MODERN V2 IMPORTS ---
-const { onObjectFinalized } = require('firebase-functions/v2/storage');
-const { logger } = require('firebase-functions');
-const admin = require('firebase-admin');
-const { Storage } = require('@google-cloud/storage');
-const sharp = require('sharp');
-const fs = require('fs-extra');
-const path = require('path');
-const os = require('os');
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const nodemailer = require("nodemailer");
+const { defineString } = require('firebase-functions/params');
 
-admin.initializeApp();
-const storage = new Storage();
+// 1. Define parameters to read from your functions/.env file
+const brevoUser = defineString('BREVO_USER');
+const brevoPass = defineString('BREVO_PASS');
 
-// We increase memory/cpu because image processing is heavy
-exports.optimizeImage = onObjectFinalized({ 
-    memory: "1GiB", 
-    cpu: 2 
+/**
+ * Configure the Mail Transporter
+ * We use Port 465 (Secure) for Brevo
+ */
+const transporter = nodemailer.createTransport({
+  host: "smtp-relay.brevo.com",
+  port: 465,
+  secure: true, 
+  auth: {
+    user: brevoUser.value(),
+    pass: brevoPass.value(),
+  },
+  // ✅ Handle TLS strictness in modern Node runtimes
+  tls: {
+    rejectUnauthorized: false 
+  }
+});
+
+/**
+ * Cloud Function: sendEmailTrigger
+ * Region: asia-south1 (Mumbai) - Matches your Firestore location
+ */
+exports.sendEmailTrigger = onDocumentCreated({
+    document: "mail/{docId}",
+    region: "asia-south1" 
 }, async (event) => {
+  const snapshot = event.data;
+  if (!snapshot) {
+    console.error("No data found in the event.");
+    return null;
+  }
+
+  const mailData = snapshot.data();
+  const { to, message } = mailData;
+
+  // Validation: Don't attempt to send if 'to' address is missing
+  if (!to || !message) {
+    console.error("Missing 'to' or 'message' data in Firestore document.");
+    return null;
+  }
+
+  const mailOptions = {
+    from: '"RoomieSwipe" <vs393031@gmail.com>', // Must be your verified Brevo sender
+    to: to,
+    subject: message.subject,
+    html: message.html,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`✅ Email sent successfully to ${to}. Message ID: ${info.messageId}`);
     
-    // In v2, the file data is inside event.data
-    const object = event.data; 
+    // Optional: Write success status back to the Firestore document
+    await event.data.ref.set({
+      delivery: {
+        state: "SUCCESS",
+        sentAt: new Date().toISOString(),
+        messageId: info.messageId
+      }
+    }, { merge: true });
 
-    // --- 1. THE CHECK (Guard at the Door) ---
-    const fileBucket = object.bucket; 
-    const filePath = object.name; 
-    const contentType = object.contentType; 
+  } catch (error) {
+    console.error("❌ Email delivery failed:", error);
 
-    // Exit if this is not an image
-    if (!contentType || !contentType.startsWith('image/')) {
-        return logger.log('This is not an image. Letting it pass.');
-    }
+    // Optional: Write error status back to the Firestore document
+    await event.data.ref.set({
+      delivery: {
+        state: "ERROR",
+        error: error.message,
+        failedAt: new Date().toISOString()
+      }
+    }, { merge: true });
+  }
 
-    // Exit if the image is already optimized (Prevent Infinite Loop)
-    if (object.metadata && object.metadata.optimized) {
-        return logger.log('Image is already optimized. Stopping.');
-    }
-
-    // --- 2. THE INTERCEPTION (Grab the file) ---
-    const bucket = storage.bucket(fileBucket);
-    const fileName = path.basename(filePath);
-    const workingDir = path.join(os.tmpdir(), 'thumbs');
-    const tempFilePath = path.join(workingDir, fileName);
-    
-    // Create new name (swap ext to .webp)
-    const newFileName = `${path.parse(fileName).name}.webp`;
-    const newFilePath = path.join(path.dirname(filePath), newFileName);
-    const tempNewPath = path.join(workingDir, newFileName);
-
-    await fs.ensureDir(workingDir);
-
-    // Download
-    await bucket.file(filePath).download({ destination: tempFilePath });
-    logger.log('Image downloaded locally for processing.');
-
-    // --- 3. THE SHRINK RAY (Resize & Convert) ---
-    await sharp(tempFilePath)
-        .resize({ width: 1080, withoutEnlargement: true }) 
-        .toFormat('webp', { quality: 80 })
-        .toFile(tempNewPath);
-    
-    logger.log('Image optimized and converted to WebP.');
-
-    // --- 4. THE SWAP (Upload New) ---
-    // Upload the new WebP file
-    await bucket.upload(tempNewPath, {
-        destination: newFilePath,
-        metadata: {
-            contentType: 'image/webp',
-            metadata: { 
-                optimized: "true"
-            }
-        }
-    });
-
-    // Cleanup local temp files
-    await fs.remove(workingDir);
-
-    // *** DELETION LOGIC REMOVED ***
-    // We keep the original file so the frontend doesn't 404 immediately.
-    // The Database update below will ensure users eventually switch to the WebP version.
-
-    // --- 5. THE NOTIFICATION (Update Database) ---
-    const userId = filePath.split('/')[1]; 
-    if (userId) {
-        // Construct the new public download URL for the WebP version
-        const newUrl = `https://firebasestorage.googleapis.com/v0/b/${fileBucket}/o/${encodeURIComponent(newFilePath)}?alt=media`;
-        
-        const userRef = admin.firestore().collection('users').doc(userId);
-        
-        await userRef.set({ 
-            photoURL: newUrl, 
-            optimizedAt: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-        
-        logger.log(`Database updated for User ${userId}`);
-    }
-
-    return logger.log('Optimization Complete.');
+  return null;
 });
