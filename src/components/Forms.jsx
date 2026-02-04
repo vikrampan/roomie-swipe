@@ -371,22 +371,52 @@ const PhotosStep = memo(({ formData, updateField, user, showToast }) => {
 
 const LifestyleStep = memo(({ formData, updateField, user, onCancel }) => {
     const [confirmDelete, setConfirmDelete] = useState(false);
+    // ✅ NEW: Loading state for the delete process
+    const [isDeleting, setIsDeleting] = useState(false); 
 
     const handleLogout = async () => { 
         try { 
             await signOut(auth); 
-            // Do NOT call onCancel(). Let App.jsx handle the unmount via auth listener.
             window.location.reload(); 
         } catch (e) { console.error(e); } 
     };
 
     const handleDeleteAccount = async () => {
-        if (!confirmDelete) { setConfirmDelete(true); return; }
+        // 1. First click: Just toggle the "Are you sure?" mode
+        if (!confirmDelete) { 
+            setConfirmDelete(true); 
+            return; 
+        }
+
+        // 2. Second click: Start the actual deletion
+        setIsDeleting(true); // <--- LOCK THE UI INSTANTLY
+
         try {
-          await deleteMyProfile(user.uid);
-          await deleteUser(auth.currentUser);
-          window.location.reload();
-        } catch (e) {}
+            // Delete Profile Data
+            await deleteMyProfile(user.uid);
+
+            // Delete Auth Account (with re-auth fallback if needed)
+            try {
+                await deleteUser(auth.currentUser);
+            } catch (error) {
+                if (error.code === 'auth/requires-recent-login') {
+                    const provider = new GoogleAuthProvider();
+                    await reauthenticateWithPopup(auth.currentUser, provider);
+                    await deleteUser(auth.currentUser);
+                } else {
+                    throw error;
+                }
+            }
+
+            // Success
+            window.location.reload();
+
+        } catch (e) {
+            console.error("Delete failed:", e);
+            alert("Could not delete account. Please try again.");
+            setIsDeleting(false); // Reset if it failed
+            setConfirmDelete(false);
+        }
     };
 
     return (
@@ -416,12 +446,48 @@ const LifestyleStep = memo(({ formData, updateField, user, onCancel }) => {
                         <button onClick={handleLogout} className="text-xs font-bold text-white hover:text-slate-300 transition-colors flex items-center gap-2">
                             <LogOut size={14} /> Sign Out
                         </button>
+                        
                         <div className="w-[1px] h-4 bg-white/10"></div>
-                        <button onClick={handleDeleteAccount} className="text-xs font-bold text-red-500 hover:text-red-400 transition-colors">
-                            {confirmDelete ? "Confirm?" : "Delete"}
+                        
+                        {/* ✅ UPDATED DELETE BUTTON */}
+                        <button 
+                            onClick={handleDeleteAccount} 
+                            disabled={isDeleting} // Disable button while deleting
+                            className={`text-xs font-bold transition-colors flex items-center gap-2 ${
+                                confirmDelete 
+                                    ? "text-red-500 hover:text-red-400 bg-red-500/10 px-3 py-1.5 rounded-lg" 
+                                    : "text-slate-500 hover:text-white"
+                            }`}
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <Loader2 size={12} className="animate-spin"/> 
+                                    Erasing...
+                                </>
+                            ) : (
+                                confirmDelete ? "Confirm Delete?" : "Delete"
+                            )}
                         </button>
                     </div>
                 </div>
+
+                {/* ✅ EXTRA VISUAL FEEDBACK */}
+                {isDeleting && (
+                    <div className="text-center animate-pulse space-y-1">
+                         <p className="text-[10px] font-bold text-red-500">
+                             ⚠️ Deleting all your data...
+                         </p>
+                         <p className="text-[9px] text-slate-500">
+                             Please do not close this window.
+                         </p>
+                    </div>
+                )}
+                
+                {confirmDelete && !isDeleting && (
+                    <p className="text-[10px] text-center text-slate-500">
+                        This action is permanent. All chats and matches will be lost.
+                    </p>
+                )}
             </div>
         </div>
     );
