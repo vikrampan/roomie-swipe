@@ -1,43 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Eye, ExternalLink, Heart, X, Sparkles, CheckCircle2, MessageCircle } from 'lucide-react';
+import { Lock, Eye, ExternalLink, Heart, X, Sparkles, ArrowLeft, MessageCircle } from 'lucide-react';
 import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore'; 
 import { db } from '../firebase';
 import { SecureImage } from '../components/SecureImage';
-import { MatchPopup } from '../components/Modals'; // ✅ Import Match Popup
-import { swipeRight, swipeLeft } from '../services/interactionService'; // ✅ Import Swipe Logic
+import { MatchPopup } from '../components/Modals'; 
+import { swipeRight, swipeLeft } from '../services/interactionService'; 
 
 // ✅ YOUR ADSTERRA DIRECT LINK
 const AD_LINK = "https://www.effectivegatecpm.com/r6w2gzk3?key=ac76c970958e7e558ee02341e09af460"; 
 
-export const LikesPage = ({ user }) => {
+// ✅ Added props: onBack and onNavigateToChat
+export const LikesPage = ({ user, onBack, onNavigateToChat }) => {
   const [likes, setLikes] = useState([]);
   const [showAdModal, setShowAdModal] = useState(false);
-  const [selectedMatch, setSelectedMatch] = useState(null); // The card we are unlocking
-  const [newMatchData, setNewMatchData] = useState(null);   // The data for the "It's a Match" popup
+  const [selectedMatch, setSelectedMatch] = useState(null);
+  const [newMatchData, setNewMatchData] = useState(null); 
   const [loading, setLoading] = useState(true);
 
   // --- 1. FETCH INCOMING LIKES ---
   useEffect(() => {
     if (!user) return;
-
-    // Query: Who liked ME?
     const q = query(
       collection(db, "interactions"),
       where("toUserId", "==", user.uid),
       where("type", "==", "like")
     );
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const incomingLikes = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      // Filter out interactions that are ALREADY matched
       setLikes(incomingLikes.filter(l => !l.isMatch));
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, [user]);
 
@@ -45,7 +41,6 @@ export const LikesPage = ({ user }) => {
   const handleWatchAd = () => {
     if (!selectedMatch) return;
     window.open(AD_LINK, '_blank');
-    
     const checkFocus = () => {
         if (document.visibilityState === 'visible') {
             unlockProfile(selectedMatch.id);
@@ -65,24 +60,18 @@ export const LikesPage = ({ user }) => {
       } catch (e) { console.error("Unlock failed", e); }
   };
 
-  // --- 3. NEW: HANDLE DECISIONS (Accept/Reject) ---
-  
-  // ✅ ACCEPT (Match)
+  // --- 3. HANDLE ACCEPT (MATCH) ---
   const handleAccept = async (e, like) => {
-      e.stopPropagation(); // Prevent opening modal again
-      
-      // Since they already liked us, swiping right on them guarantees a match
+      e.stopPropagation(); 
+      // Swipe right to confirm match
       const result = await swipeRight(user.uid, like.fromUserId);
-      
       if (result.isMatch) {
-          setNewMatchData(result.matchData); // Triggers the popup
+          setNewMatchData(result.matchData); // Show "It's a Match!"
       }
-      
-      // Remove from list UI immediately
       setLikes(prev => prev.filter(l => l.id !== like.id));
   };
 
-  // ❌ REJECT (Pass)
+  // --- 4. HANDLE REJECT ---
   const handleReject = async (e, like) => {
       e.stopPropagation();
       await swipeLeft(user.uid, like.fromUserId);
@@ -95,13 +84,26 @@ export const LikesPage = ({ user }) => {
       setShowAdModal(true);
   };
 
+  const handleGoToChat = () => {
+      setNewMatchData(null);
+      if (onNavigateToChat) onNavigateToChat(); // ✅ Redirects to Chat Tab
+  };
+
   if (loading) return <div className="min-h-screen bg-black flex items-center justify-center text-white font-bold animate-pulse">Loading likes...</div>;
 
   return (
-    <div className="min-h-screen bg-black pb-24 p-6 md:p-12">
+    <div className="min-h-screen bg-black pb-24 p-6 md:p-12 relative">
        
-       <div className="max-w-7xl mx-auto">
-           <div className="mb-8">
+       {/* ✅ BACK BUTTON (Top Left) */}
+       <button 
+         onClick={onBack}
+         className="absolute top-6 left-6 z-50 w-10 h-10 bg-white/10 rounded-full flex items-center justify-center text-white hover:bg-white/20 transition-all"
+       >
+          <ArrowLeft size={20} />
+       </button>
+
+       <div className="max-w-7xl mx-auto pt-10">
+           <div className="mb-8 pl-4">
                 <h1 className="text-3xl font-black text-white mb-2 tracking-tight">Liked You</h1>
                 <p className="text-slate-500 text-sm font-medium">Unlock to see who wants to match.</p>
            </div>
@@ -122,7 +124,6 @@ export const LikesPage = ({ user }) => {
                          onClick={() => openRevealModal(like)}
                          className="relative aspect-[3/4] rounded-3xl overflow-hidden bg-slate-900 border border-white/10 cursor-pointer shadow-lg group"
                        >
-                           {/* IMAGE LAYER */}
                            <div className={`w-full h-full ${like.isRevealed ? '' : 'blur-xl scale-110 brightness-50'}`}>
                                <SecureImage 
                                    src={like.fromData?.img || "https://via.placeholder.com/300"} 
@@ -130,7 +131,6 @@ export const LikesPage = ({ user }) => {
                                />
                            </div>
 
-                           {/* LOCK OVERLAY */}
                            {!like.isRevealed ? (
                                <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-4 text-center">
                                    <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center mb-3 group-hover:bg-white/20 transition-colors">
@@ -141,14 +141,11 @@ export const LikesPage = ({ user }) => {
                                    </span>
                                </div>
                            ) : (
-                               // ✅ REVEALED: SHOW ACTION BUTTONS
                                <div className="absolute inset-0 flex flex-col justify-end p-3 bg-gradient-to-t from-black/90 via-black/40 to-transparent">
                                    <div className="mb-3">
                                        <p className="text-white font-bold text-sm truncate">{like.fromData?.name}, {like.fromData?.age}</p>
                                        <p className="text-slate-300 text-xs font-medium">{like.fromData?.city}</p>
                                    </div>
-                                   
-                                   {/* ACTION BUTTONS ROW */}
                                    <div className="flex gap-2">
                                        <button 
                                            onClick={(e) => handleReject(e, like)}
@@ -171,7 +168,6 @@ export const LikesPage = ({ user }) => {
            )}
        </div>
 
-       {/* --- REVEAL MODAL --- */}
        <AnimatePresence>
          {showAdModal && (
            <motion.div 
@@ -202,15 +198,11 @@ export const LikesPage = ({ user }) => {
            </motion.div>
          )}
 
-         {/* ✅ MATCH POPUP (Triggered when you click the Heart) */}
          {newMatchData && (
             <MatchPopup 
                 person={newMatchData} 
                 onClose={() => setNewMatchData(null)} 
-                onChat={() => {
-                    setNewMatchData(null);
-                    // Add navigation logic here if needed, or just let them close it
-                }} 
+                onChat={handleGoToChat} // ✅ Passes the redirect handler
             />
          )}
        </AnimatePresence>

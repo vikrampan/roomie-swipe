@@ -1,14 +1,14 @@
 import React, { useState, useMemo, memo } from 'react';
 import { motion } from 'framer-motion';
-import { MapPin, Sparkles, ChevronUp, IndianRupee, ShieldCheck, Mail } from 'lucide-react';
+import { MapPin, Sparkles, ChevronUp, IndianRupee, ShieldCheck } from 'lucide-react';
 import { triggerHaptic, calculateCompatibility } from '../services/utils';
 import { SecureImage } from './SecureImage';
 
-// ✅ Memoized to prevent jittery re-renders when the feed updates
+// ✅ Memoized to prevent jittery re-renders
 export const Card = memo(({ person, onSwipe, onCardLeftScreen, onInfo, myProfile }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
-  
-  // --- 1. IMAGE LOGIC (HOST VS HUNTER) ---
+
+  // --- IMAGE LOGIC ---
   const images = useMemo(() => {
     let allImages = [];
     if (person.userRole === 'host' && person.roomImages?.length > 0) {
@@ -19,62 +19,64 @@ export const Card = memo(({ person, onSwipe, onCardLeftScreen, onInfo, myProfile
     return allImages.length > 0 ? allImages : [person.img || 'https://via.placeholder.com/400x600?text=No+Image'];
   }, [person]);
 
-  // Calculate Vibe Match Score
   const vibeScore = useMemo(() => calculateCompatibility(myProfile?.tags, person.tags), [myProfile, person]);
 
-  // --- 2. IMAGE NAVIGATION (Tap to browse photos) ---
-  const handleImageNavigation = (e) => {
-    // Prevent navigation if clicking the bottom info panel
-    if (e.target.closest('.info-trigger')) return;
+  // --- TAP HANDLER (Change Photo) ---
+  const handleTap = (e) => {
+      // Prevent navigation if clicking info trigger
+      if (e.target.closest('.info-trigger')) return;
 
-    const card = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - card.left;
+      const card = e.currentTarget.getBoundingClientRect();
+      const clickX = e.clientX - card.left;
 
-    if (clickX > card.width / 2) {
-      // Tap Right -> Next
-      if (currentIndex < images.length - 1) {
-        triggerHaptic('light');
-        setCurrentIndex(prev => prev + 1);
+      if (clickX > card.width / 2) {
+        // Tap Right -> Next Photo
+        if (currentIndex < images.length - 1) {
+          triggerHaptic('light');
+          setCurrentIndex(prev => prev + 1);
+        } else {
+          setCurrentIndex(0); 
+        }
       } else {
-        setCurrentIndex(0); 
+        // Tap Left -> Prev Photo
+        if (currentIndex > 0) {
+          triggerHaptic('light');
+          setCurrentIndex(prev => prev - 1);
+        }
       }
-    } else {
-      // Tap Left -> Previous
-      if (currentIndex > 0) {
-        triggerHaptic('light');
-        setCurrentIndex(prev => prev - 1);
-      }
-    }
   };
 
   return (
     <motion.div 
-      // ✅ UNIQUE KEY: Critical to prevent cards from ghosting or stacking incorrectly
       key={person.id}
+      style={{ zIndex: 10 }}
+      
+      // ❌ DRAG REMOVED (As requested for performance)
+      // drag="x" ... deleted
+      
+      // Exit Animation (Triggered by buttons)
       initial={{ scale: 0.9, opacity: 0, y: 20 }}
       animate={{ scale: 1, opacity: 1, y: 0 }}
       exit={{ 
-        // ✅ DIRECTIONAL EXIT: Logic provided in App.jsx sets 'swipeDirection'
-        x: person.swipeDirection === 'right' ? 600 : -600, 
-        opacity: 0, 
-        rotate: person.swipeDirection === 'right' ? 25 : -25,
-        transition: { duration: 0.5, ease: "easeIn" } 
+        x: person.swipeDirection === 'right' ? 600 : -600, // Simpler exit distance
+        opacity: 0,
+        rotate: person.swipeDirection === 'right' ? 20 : -20, // Simple rotation
+        transition: { duration: 0.4, ease: "easeInOut" } 
       }}
       className="absolute w-[95vw] max-w-sm h-[70vh] select-none flex justify-center items-center"
-      style={{ zIndex: 10 }}
     >
         <div 
-          className="relative w-full h-full bg-[#1a1a1a] rounded-[2rem] overflow-hidden shadow-2xl border border-white/10 cursor-pointer"
-          onClick={handleImageNavigation}
+          className="relative w-full h-full bg-[#1a1a1a] rounded-[2rem] overflow-hidden shadow-2xl border border-white/10"
+          onClick={handleTap} // Simple click handler instead of complex pointer events
         >
-          {/* Main Image - Rendered via Secure Canvas for URL protection */}
+          {/* Main Image */}
           <SecureImage 
             src={images[currentIndex]} 
-            className="w-full h-full bg-gray-900"
+            className="w-full h-full bg-gray-900 pointer-events-none" 
             isBlurred={false} 
           />
           
-          {/* Overlay Gradients */}
+          {/* Overlays */}
           <div className="absolute top-0 left-0 w-full h-28 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
           <div className="absolute bottom-0 left-0 w-full h-3/5 bg-gradient-to-t from-black/95 via-black/50 to-transparent pointer-events-none" />
 
@@ -88,7 +90,7 @@ export const Card = memo(({ person, onSwipe, onCardLeftScreen, onInfo, myProfile
             ))}
           </div>
 
-          {/* Role Badge */}
+          {/* Badges */}
           <div className="absolute top-6 left-3 z-20 pointer-events-none">
              <div className={`px-3 py-1 rounded-full flex items-center gap-1.5 shadow-lg border border-white/10 ${person.userRole === 'host' ? 'bg-purple-600/90' : 'bg-emerald-500/90'}`}>
                 <span className="text-[10px] font-black text-white uppercase tracking-wider">
@@ -97,7 +99,6 @@ export const Card = memo(({ person, onSwipe, onCardLeftScreen, onInfo, myProfile
              </div>
           </div>
 
-          {/* Vibe Score Badge */}
           <div className="absolute top-6 right-3 z-20 pointer-events-none">
              <div className="px-3 py-1 bg-black/60 border border-white/10 rounded-full flex items-center gap-1.5 shadow-lg">
                 <Sparkles size={12} className="text-yellow-400 fill-yellow-400 animate-pulse"/>
@@ -108,12 +109,12 @@ export const Card = memo(({ person, onSwipe, onCardLeftScreen, onInfo, myProfile
           {/* --- BOTTOM INFO PANEL --- */}
           <div 
             className="info-trigger absolute bottom-0 left-0 w-full p-5 pb-6 z-30 flex flex-col justify-end bg-gradient-to-t from-black/90 to-transparent"
-            onClick={(e) => {
+            onClick={(e) => { 
                 e.stopPropagation(); 
                 onInfo(person); 
             }}
           >
-             {/* Verified Badges */}
+             {/* Verified Badge */}
              <div className="flex items-center gap-2 mb-2 pointer-events-none">
                 {person.isPhoneVerified && (
                     <div className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/30 rounded-md flex items-center gap-1">
@@ -121,10 +122,6 @@ export const Card = memo(({ person, onSwipe, onCardLeftScreen, onInfo, myProfile
                         <span className="text-[9px] font-bold text-emerald-400 uppercase">Phone Verified</span>
                     </div>
                 )}
-                <div className="px-2 py-0.5 bg-blue-500/20 border border-blue-500/30 rounded-md flex items-center gap-1">
-                    <Mail size={10} className="text-blue-400"/>
-                    <span className="text-[9px] font-bold text-blue-400 uppercase">Verified</span>
-                </div>
              </div>
 
              {/* Identity Row */}
@@ -135,7 +132,7 @@ export const Card = memo(({ person, onSwipe, onCardLeftScreen, onInfo, myProfile
                 <span className="text-xl font-medium text-white/80 mb-1">{person.age}</span>
              </div>
 
-             {/* Practical Stats */}
+             {/* Stats Row */}
              <div className="flex items-center gap-3 text-xs font-bold text-white/80 uppercase tracking-wide mb-3 pointer-events-none">
                 <div className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-md">
                     <MapPin size={12} className="text-pink-500"/> 
@@ -147,7 +144,7 @@ export const Card = memo(({ person, onSwipe, onCardLeftScreen, onInfo, myProfile
                 </div>
              </div>
 
-             {/* Visual CTA */}
+             {/* Expand Hint */}
              <div className="w-full pt-3 border-t border-white/10 flex items-center justify-between text-white/60 pointer-events-none">
                 <span className="text-xs font-bold uppercase tracking-widest">Tap for Details</span>
                 <ChevronUp size={20} className="animate-bounce" />
