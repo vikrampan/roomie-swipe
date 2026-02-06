@@ -129,7 +129,7 @@ const deleteImageFromStorage = async (imageUrl) => {
   }
 };
 
-// ✅ UPDATED: Delete profile AND associated images from Storage
+// ✅ UPDATED: Complete "Clean Sweep" Deletion
 export const deleteMyProfile = async (uid) => {
   try {
     // 1. Get user profile first to access image URLs
@@ -153,27 +153,48 @@ export const deleteMyProfile = async (uid) => {
       }
     }
     
-    // 3. Use batch to delete Firestore documents
+    // 3. Initialize Batch Operation
     const batch = writeBatch(db);
     
-    // Delete the user profile
+    // Step A: Delete the user profile document
     batch.delete(userRef);
     
-    // 4. Find & Delete All Matches (So you vanish from other people's chats)
-    // This prevents "Ghost Chats" where they can see you but you don't exist.
+    // Step B: Find & Delete All Matches (Prevention of Ghost Chats)
     const matchesQuery = query(
       collection(db, "matches"), 
       where("users", "array-contains", uid)
     );
     const matchesSnap = await getDocs(matchesQuery);
-    
     console.log(`Deleting ${matchesSnap.size} matches...`);
-    
     matchesSnap.forEach((matchDoc) => {
       batch.delete(matchDoc.ref);
     });
+
+    // Step C: Delete Outgoing Interactions (Prevention of Ghost Cards for others)
+    // "I liked them" -> Delete these so I disappear from their likes list
+    const outgoingInteractionsQuery = query(
+        collection(db, "interactions"),
+        where("fromUserId", "==", uid)
+    );
+    const outgoingSnap = await getDocs(outgoingInteractionsQuery);
+    console.log(`Deleting ${outgoingSnap.size} outgoing interactions...`);
+    outgoingSnap.forEach((doc) => {
+        batch.delete(doc.ref);
+    });
+
+    // Step D: Delete Incoming Interactions
+    // "They liked me" -> Delete these to clean up the database
+    const incomingInteractionsQuery = query(
+        collection(db, "interactions"),
+        where("toUserId", "==", uid)
+    );
+    const incomingSnap = await getDocs(incomingInteractionsQuery);
+    console.log(`Deleting ${incomingSnap.size} incoming interactions...`);
+    incomingSnap.forEach((doc) => {
+        batch.delete(doc.ref);
+    });
     
-    // 5. Execute one big delete operation (Cheaper than many small ones)
+    // 4. Execute the Batch (Atomic Commit)
     await batch.commit();
     
     console.log("Profile deletion complete!");

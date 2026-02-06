@@ -1,10 +1,10 @@
 import { collection, query, orderBy, getDocs, startAt, endAt, where, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { geohashQueryBounds, distanceBetween } from 'geofire-common';
-import { AD_INVENTORY } from '../data/adData'; 
+// ✅ FIX 1: Import the correct name from your new file
+import { AFFILIATE_ADS } from '../data/adData'; 
 
 // --- 1. CACHING HELPER ---
-// Prevents re-reading the same users from Firestore in one session to save costs.
 const getCachedIds = () => {
   try { 
     return new Set(JSON.parse(sessionStorage.getItem('seen_users') || '[]')); 
@@ -29,9 +29,7 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
   const excludeIds = new Set([...(blockedIds || []), currentUser.uid]);
   const cachedSeen = getCachedIds();
 
-  // --- A. FETCH RECENT HISTORY (RESIFIED FOR INTERACTIONS COLLECTION) ---
-  // ✅ FIX: No longer querying non-existent 'passes' or 'likes' collections.
-  // This resolves the "insufficient permissions" error.
+  // --- A. FETCH RECENT HISTORY ---
   try {
     const recentLimit = Date.now() - (30 * 24 * 60 * 60 * 1000); 
     
@@ -71,13 +69,13 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
     for (const doc of snap.docs) {
       const data = doc.data();
       
-      // 1. Basic Exclusions (Self, History, Seen Cache)
+      // 1. Basic Exclusions
       if (doc.id === currentUser.uid || excludeIds.has(doc.id) || cachedSeen.has(doc.id)) continue;
       
       // 2. Gender Filter
       if (filters?.gender && filters.gender !== "All" && data.gender !== filters.gender) continue; 
 
-      // 3. STRICT ROLE FILTER (Host sees Hunters, Hunter sees Hosts)
+      // 3. STRICT ROLE FILTER
       if (filters?.role && data.userRole === filters.role) continue;
 
       // 4. Distance Calculation
@@ -106,42 +104,28 @@ export const getNearbyUsers = async (currentUser, location, radiusKm, filters, b
 
 // --- 3. SMART AD INJECTION LOGIC ---
 export const injectSmartAds = (feedUsers, myProfile) => {
-  if (!myProfile) return feedUsers;
+  // If no ads available or no profile, return original feed
+  if (!myProfile || !AFFILIATE_ADS || AFFILIATE_ADS.length === 0) return feedUsers;
 
   const usersWithAds = [];
   let adCount = 0; 
 
-  const hostAds = [
-    AD_INVENTORY.cleaning,       
-    AD_INVENTORY.quickGrocery,   
-    AD_INVENTORY.premiumFurniture, 
-    AD_INVENTORY.wifi,           
-    AD_INVENTORY.foodDelivery    
-  ];
-
-  const hunterAds = [
-    AD_INVENTORY.packers,        
-    AD_INVENTORY.wifi,           
-    AD_INVENTORY.foodDelivery,   
-    AD_INVENTORY.budgetFurniture,
-    AD_INVENTORY.coliving        
-  ];
-
-  const targetAds = myProfile.userRole === 'host' ? hostAds : hunterAds;
-
   feedUsers.forEach((user, index) => {
     usersWithAds.push(user);
 
-    // ✅ Inject an AD after every 3rd user card
+    // ✅ Inject an AD after every 3rd user card (Index 2, 5, 8...)
     if ((index + 1) % 3 === 0) {
-      const adIndex = adCount % targetAds.length; 
-      const selectedAd = targetAds[adIndex];
+      
+      // ✅ FIX 2: Simply cycle through the new AFFILIATE_ADS array
+      const adIndex = adCount % AFFILIATE_ADS.length; 
+      const selectedAd = AFFILIATE_ADS[adIndex];
 
       if (selectedAd) {
         usersWithAds.push({
           ...selectedAd,
           isAd: true, 
-          id: `${selectedAd.id}_${index}_${Date.now()}` 
+          // Ensure unique ID so React doesn't crash on keys
+          id: `ad_${selectedAd.id}_${index}` 
         });
         adCount++; 
       }

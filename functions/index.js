@@ -1,84 +1,84 @@
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
-const nodemailer = require("nodemailer");
-const { defineString } = require('firebase-functions/params');
+const { onDocumentDeleted, onDocumentUpdated, onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { setGlobalOptions } = require("firebase-functions/v2");
+const admin = require("firebase-admin");
 
-// 1. Define parameters to read from your functions/.env file
-const brevoUser = defineString('BREVO_USER');
-const brevoPass = defineString('BREVO_PASS');
+admin.initializeApp();
+const db = admin.firestore();
+const storage = admin.storage().bucket();
+
+// Region optimized for India
+setGlobalOptions({ region: "asia-south1" });
 
 /**
- * Configure the Mail Transporter
- * We use Port 465 (Secure) for Brevo
+ * 1. STORAGE CLEANUP
+ * Removes orphaned images when a user is deleted.
  */
-const transporter = nodemailer.createTransport({
-  host: "smtp-relay.brevo.com",
-  port: 465,
-  secure: true, 
-  auth: {
-    user: brevoUser.value(),
-    pass: brevoPass.value(),
-  },
-  // ✅ Handle TLS strictness in modern Node runtimes
-  tls: {
-    rejectUnauthorized: false 
-  }
+exports.cleanupUserStorage = onDocumentDeleted("users/{userId}", async (event) => {
+    const userId = event.params.userId;
+    const path = `users/${userId}/`;
+    try {
+        const [files] = await storage.getFiles({ prefix: path });
+        if (files.length === 0) return null;
+        await Promise.all(files.map(file => file.delete()));
+        console.log(`🗑️ Cleaned storage for ${userId}`);
+    } catch (error) {
+        console.error("Storage cleanup failed", error);
+    }
 });
 
 /**
- * Cloud Function: sendEmailTrigger
- * Region: asia-south1 (Mumbai) - Matches your Firestore location
+ * 2. PROFILE SYNC
+ * Syncs name/image changes to all Match documents.
  */
-exports.sendEmailTrigger = onDocumentCreated({
-    document: "mail/{docId}",
-    region: "asia-south1" 
-}, async (event) => {
-  const snapshot = event.data;
-  if (!snapshot) {
-    console.error("No data found in the event.");
-    return null;
-  }
+exports.syncUserProfileToMatches = onDocumentUpdated("users/{userId}", async (event) => {
+    const userId = event.params.userId;
+    const newValue = event.data.after.data();
+    const oldValue = event.data.before.data();
 
-  const mailData = snapshot.data();
-  const { to, message } = mailData;
+    if (newValue.name === oldValue.name && 
+        (newValue.images?.[0] || newValue.img) === (oldValue.images?.[0] || oldValue.img)) return null;
 
-  // Validation: Don't attempt to send if 'to' address is missing
-  if (!to || !message) {
-    console.error("Missing 'to' or 'message' data in Firestore document.");
-    return null;
-  }
+    try {
+        const matchesQuery = db.collection("matches").where("users", "array-contains", userId);
+        const matchesSnap = await matchesQuery.get();
+        if (matchesSnap.empty) return null;
 
-  const mailOptions = {
-    from: '"RoomieSwipe" <vs393031@gmail.com>', // Must be your verified Brevo sender
-    to: to,
-    subject: message.subject,
-    html: message.html,
-  };
+        const batch = db.batch();
+        const newSnap = {
+            uid: userId,
+            name: newValue.name,
+            img: newValue.images?.[0] || newValue.img || "",
+            occupation: newValue.occupation || "Student"
+        };
 
-  try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ Email sent successfully to ${to}. Message ID: ${info.messageId}`);
-    
-    // Optional: Write success status back to the Firestore document
-    await event.data.ref.set({
-      delivery: {
-        state: "SUCCESS",
-        sentAt: new Date().toISOString(),
-        messageId: info.messageId
-      }
-    }, { merge: true });
+        matchesSnap.forEach(doc => {
+            batch.update(doc.ref, { [`profiles.${userId}`]: newSnap });
+        });
+        await batch.commit();
+        console.log(`✅ Synced profile for ${userId}`);
+    } catch (error) {
+        console.error("Profile sync failed", error);
+    }
+});
 
-  } catch (error) {
-    console.error("❌ Email delivery failed:", error);
+/**
+ * 3. UNREAD COUNTER
+ * Increments unread messages for the recipient.
+ */
+exports.incrementUnreadCount = onDocumentCreated("matches/{matchId}/messages/{messageId}", async (event) => {
+    const { matchId } = event.params;
+    const messageData = event.data.data();
+    try {
+        const matchRef = db.collection("matches").doc(matchId);
+        const matchSnap = await matchRef.get();
+        if (!matchSnap.exists) return null;
 
-    // Optional: Write error status back to the Firestore document
-    await event.data.ref.set({
-      delivery: {
-        state: "ERROR",
-        error: error.message,
-        failedAt: new Date().toISOString()
-      }
-    }, { merge: true });
-  }
-
-  return null;
+        const recipientId = matchSnap.data().users.find(uid => uid !== messageData.senderId);
+        await matchRef.update({
+            [`unreadCount.${recipientId}`]: admin.firestore.FieldValue.increment(1),
+            lastActivity: admin.firestore.FieldValue.serverTimestamp()
+        });
+    } catch (error) {
+        console.error("Counter failed", error);
+    }
 });

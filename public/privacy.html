@@ -1,19 +1,198 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><title>Privacy Policy - Vibe</title></head>
-<body style="font-family: sans-serif; line-height: 1.6; padding: 40px; color: #333;">
-    <h1>Privacy Policy</h1>
-    <p>Last updated: January 30, 2026</p>
-    
-    <h2>1. Data We Collect</h2>
-    <p>We collect your Google profile information (name, email, photo) and location data to provide roommate matching services.</p>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy | RoomieSwipe</title>
+    <meta name="description" content="Privacy Policy for RoomieSwipe - How we handle your data, location, and security.">
+    <style>
+        :root {
+            --bg: #050505;
+            --text-main: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent: #db2777; /* Pink-600 */
+            --border: #333;
+            --panel: #111;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            line-height: 1.7;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 60px 24px;
+        }
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 900;
+            margin-bottom: 8px;
+            color: #fff;
+            letter-spacing: -1px;
+        }
+        .meta {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            margin-bottom: 40px;
+            font-family: monospace;
+        }
+        h2 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-top: 40px;
+            margin-bottom: 16px;
+            color: #fff;
+            border-left: 4px solid var(--accent);
+            padding-left: 16px;
+        }
+        h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fff;
+            margin-top: 24px;
+            margin-bottom: 8px;
+        }
+        p {
+            margin-bottom: 16px;
+            color: var(--text-muted);
+        }
+        ul {
+            margin-bottom: 16px;
+            color: var(--text-muted);
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+        strong {
+            color: #fff;
+        }
+        a {
+            color: var(--accent);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        a:hover {
+            text-decoration: underline;
+            color: #f472b6;
+        }
+        .highlight-box {
+            background: rgba(219, 39, 119, 0.05);
+            border: 1px solid rgba(219, 39, 119, 0.2);
+            padding: 20px;
+            border-radius: 12px;
+            margin: 24px 0;
+        }
+        .info-badge {
+            display: inline-block;
+            background: #333;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+        .footer {
+            border-top: 1px solid var(--border);
+            margin-top: 80px;
+            padding-top: 40px;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Privacy Policy</h1>
+        <p class="meta">Effective Date: February 6, 2026</p>
 
-    <h2>2. Google AdSense & Cookies</h2>
-    <p><strong>Third-party vendors, including Google, use cookies to serve ads based on a user's prior visits to your website or other websites.</strong></p>
-    <p>Google's use of advertising cookies enables it and its partners to serve ads to your users based on their visit to your sites and/or other sites on the Internet.</p>
-    <p>Users may opt out of personalized advertising by visiting <a href="https://www.google.com/settings/ads">Ads Settings</a>.</p>
+        <p>At <strong>RoomieSwipe</strong> ("we," "our," or "us"), we operate on a principle of "Data Minimalism." We only collect what is strictly necessary to help you find a roommate or a room.</p>
 
-    <h2>3. Contact Us</h2>
-    <p>Email: support@yourdomain.com</p>
+        <div class="highlight-box">
+            <span class="info-badge">Community Initiative</span><br/>
+            <strong>Note on Entity Status:</strong> RoomieSwipe is currently an independent, open-source inspired community project designed to help students and professionals find housing. We are not yet a registered corporation or LLC. This service is provided "as-is" for the benefit of the community.
+        </div>
+
+        <h2>1. Information We Collect</h2>
+        <p>To provide our services, we collect the following categories of data:</p>
+        
+        <h3>A. Information You Provide</h3>
+        <ul>
+            <li><strong>Account Data:</strong> When you sign up via Google or Phone, we collect your name, email address, profile photo, and phone number (if verified).</li>
+            <li><strong>Profile Information:</strong> Age, gender, occupation, budget, lifestyle habits (e.g., smoking, drinking, sleep schedule), and bio.</li>
+            <li><strong>User Content:</strong> Photos of yourself or your room/apartment that you upload to our secure storage.</li>
+        </ul>
+
+        <h3>B. Information Collected Automatically</h3>
+        <ul>
+            <li><strong>Geolocation Data:</strong> We collect your precise latitude and longitude to calculate the distance between you and potential matches. This is stored as a "Geohash" for efficient querying.</li>
+            <li><strong>Usage Data:</strong> Information about how you interact with the app, including swipes ("Likes" or "Passes"), matches, and time spent on the platform.</li>
+            <li><strong>Device Information:</strong> IP address, device model, and operating system version for security and debugging purposes.</li>
+        </ul>
+
+        <h2>2. How We Use Your Information</h2>
+        <p>We use your data for specific business purposes:</p>
+        <ul>
+            <li><strong>Matching Algorithm:</strong> To calculate "Vibe Scores™" and display profiles within your specified radius and budget.</li>
+            <li><strong>Communication:</strong> To facilitate secure, in-app messaging between mutual matches without revealing personal contact details.</li>
+            <li><strong>Security:</strong> To verify accounts (via OTP) and prevent fraudulent behavior or harassment.</li>
+            <li><strong>Service Improvements:</strong> To analyze aggregate trends (e.g., "Most popular locations") to improve our app infrastructure.</li>
+        </ul>
+
+        <h2>3. Affiliate & Monetization Disclosure</h2>
+        <p>RoomieSwipe is a free-to-use community tool. To cover our server costs (Firebase, Maps API), we participate in affiliate marketing programs.</p>
+        <p>We may display "Smart Cards" or advertisements within your feed for relevant services (e.g., furniture rental, packers & movers). These links contain tracking cookies. If you click on an affiliate link and make a purchase, we may earn a commission to support the project at no cost to you.</p>
+        <p><strong>Note:</strong> We do not share your personal identity (name/email) with these advertisers. They only receive an anonymous signal that a click originated from our app.</p>
+
+        <h2>4. Data Retention & The "Right to be Forgotten"</h2>
+        <p>We respect your right to control your digital footprint. Unlike other platforms that "soft delete" data, we enforce a strict <strong>"Clean Sweep" Deletion Policy</strong>.</p>
+        <p>If you choose to delete your account via the Settings menu:</p>
+        <ul>
+            <li><strong>Profile Removal:</strong> Your user document is immediately and permanently deleted from our Cloud Firestore database.</li>
+            <li><strong>Media Wipe:</strong> Your photos are physically deleted from our Firebase Storage buckets.</li>
+            <li><strong>Interaction Purge:</strong> All "Likes" you sent and all "Matches" you created are deleted. You will disappear from other users' chat lists and "Who Liked Me" views.</li>
+        </ul>
+        <p>Once this process is triggered, it cannot be undone. We do not retain backups of deleted profiles.</p>
+
+        <h2>5. Security Measures</h2>
+        <p>We implement industry-standard security protocols to protect your data:</p>
+        <ul>
+            <li><strong>Encryption:</strong> All data is transmitted via HTTPS/SSL and encrypted at rest within Google Cloud infrastructure.</li>
+            <li><strong>Canvas Image Protection:</strong> We utilize proprietary canvas-rendering technology to display user images. This prevents standard "right-click to save" actions and automated scraping, ensuring your photos remain within the app environment.</li>
+            <li><strong>Access Control:</strong> Strict database security rules ensure that no user can read or write data belonging to another user, except for mutually matched public profile information.</li>
+        </ul>
+
+        <h2>6. Third-Party Services</h2>
+        <p>We rely on the following third-party processors:</p>
+        <ul>
+            <li><strong>Google Firebase:</strong> For authentication, hosting, database, and storage services.</li>
+            <li><strong>Google Maps Platform / Geofire:</strong> For location processing and geocoding.</li>
+        </ul>
+
+        <h2>7. Children's Privacy</h2>
+        <p>Our Service is strictly restricted to users aged 18 and older. We do not knowingly collect PII from minors. If we discover that a user is under 18, we will immediately delete their account and associated data.</p>
+
+        <h2>8. Liability & Community Nature</h2>
+        <p>As an independent project, we strive for uptime and security but provide the service on an "AS IS" basis. We are not a regulated real estate provider. Please exercise caution and common sense when meeting strangers.</p>
+
+        <h2>9. Updates to This Policy</h2>
+        <p>We may update this Privacy Policy from time to time. If we make material changes, we will notify you through the app or via email.</p>
+
+        <h2>10. Contact Us</h2>
+        <p>If you have questions about this policy or wish to exercise your data rights, please contact the development team:</p>
+        <p><a href="mailto:support@roomieswipe.com">support@roomieswipe.com</a></p>
+
+        <div class="footer">
+            &copy; 2026 The RoomieSwipe Project. Built for the Community.
+        </div>
+    </div>
 </body>
 </html>

@@ -4,14 +4,16 @@ import {
   X, Camera, MapPin, Loader2, Check, User, Briefcase, IndianRupee, 
   LocateFixed, LogOut, Cloud, Moon, Sun, Wine, Heart, 
   Clock, Home, ChevronLeft, Star,
-  Building, ArrowRight, Save, Image as ImageIcon, ShieldCheck, Send, KeyRound, Phone, Trash2
+  Building, ArrowRight, Save, Image as ImageIcon, ShieldCheck, Send, KeyRound, Phone, Trash2,
+  AlertCircle, MessageSquareWarning 
 } from 'lucide-react';
 import { saveProfile, deleteMyProfile } from '../services/profileService';
 import { compressImage, getCityFromCoordinates } from '../services/utils';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { signOut, deleteUser } from 'firebase/auth';
+import { signOut, deleteUser, GoogleAuthProvider, reauthenticateWithPopup } from 'firebase/auth';
 import { auth, storage } from '../firebase';
 import { PhoneVerifier } from './PhoneVerifier'; 
+import { BugReportModal } from './Modals'; 
 
 // ==========================================
 // 1. HELPER COMPONENTS
@@ -112,13 +114,14 @@ const IdentityStep = memo(({ formData, updateField, isExistingUser }) => {
 
     return (
         <div className="space-y-8 animate-in slide-in-from-right-4 fade-in duration-300">
+            {/* 1. DEMOGRAPHICS - LOCKED FOR EXISTING, OPEN FOR NEW */}
             {isExistingUser ? (
                 <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-[2rem] border border-white/10 relative overflow-hidden shadow-2xl">
                     <div className="absolute top-0 right-0 p-4 opacity-10"><User size={100}/></div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Identity Verified</h3>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Identity Secured</h3>
                     <div className="space-y-4 relative z-10">
                         <div>
-                            <label className="text-[10px] font-bold text-slate-500 uppercase">Name</label>
+                            <label className="text-[10px] font-bold text-slate-500 uppercase">Verified Name</label>
                             <p className="text-xl font-black text-white">{formData.name}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
@@ -135,36 +138,52 @@ const IdentityStep = memo(({ formData, updateField, isExistingUser }) => {
                 </div>
             ) : (
                 <>
-                    <SectionHeader icon={<User size={16}/>} title="Identity Setup" desc="Once saved, this cannot be changed." />
+                    <SectionHeader icon={<User size={16}/>} title="Identity Setup" desc="Standard verification for community safety." />
                     <InputBox label="Full Name" helper="Real Name Only" value={formData.name} onChange={v => updateField('name', v)} placeholder="e.g. Vikram Singh" />
                     <div className="grid grid-cols-2 gap-4">
                         <InputBox label="Age" type="number" value={formData.age} onChange={v => updateField('age', v)} placeholder="24" />
                         <SelectionGroup label="Gender" options={[{value: 'Male'}, {value: 'Female'}, {value: 'Other'}]} selected={formData.gender} onSelect={v => updateField('gender', v)} />
                     </div>
-                    
-                    {/* REAL PHONE VERIFICATION */}
-                    <div className="pt-4">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block ml-4">Phone Number</label>
-                        {formData.isPhoneVerified ? (
-                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl flex items-center gap-3">
-                                <ShieldCheck size={20} className="text-emerald-500"/>
-                                <div>
-                                    <p className="text-sm font-bold text-emerald-500">Verified</p>
-                                    <p className="text-xs text-emerald-400/80">{formData.phoneNumber}</p>
-                                </div>
-                            </div>
-                        ) : (
-                            <PhoneVerifier 
-                                initialNumber={formData.phoneNumber} 
-                                onVerified={handlePhoneVerified} 
-                            />
-                        )}
-                    </div>
                 </>
             )}
+            
+            {/* 2. PHONE VERIFICATION - ALWAYS VISIBLE SO USER CAN ADD LATER */}
+            <div className="pt-4 border-t border-white/5">
+                <div className="flex justify-between items-center mb-2 ml-4">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Phone Verification</label>
+                    {!formData.isPhoneVerified && <span className="text-[9px] font-bold text-pink-500 uppercase tracking-tighter">Optional for now</span>}
+                </div>
+                
+                {formData.isPhoneVerified ? (
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <ShieldCheck size={20} className="text-emerald-500"/>
+                            <div>
+                                <p className="text-sm font-bold text-emerald-500">Verified Number</p>
+                                <p className="text-xs text-emerald-400/80">{formData.phoneNumber}</p>
+                            </div>
+                        </div>
+                        <Check size={16} className="text-emerald-500" />
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <PhoneVerifier 
+                            initialNumber={formData.phoneNumber} 
+                            onVerified={handlePhoneVerified} 
+                        />
+                        <div className="px-4 flex items-start gap-2 opacity-60">
+                            <AlertCircle size={12} className="text-slate-400 mt-0.5" />
+                            <p className="text-[9px] font-medium text-slate-400 leading-relaxed">
+                                You can skip this step and start browsing, but a verified badge increases match rates by 3x.
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
 
+            {/* 3. ROLE SELECTION */}
             <section className="pt-6 border-t border-white/10">
-                <label className="text-xs font-bold text-slate-500 uppercase mb-4 block tracking-wide">Current Status</label>
+                <label className="text-xs font-bold text-slate-500 uppercase mb-4 block tracking-wide">Select your role</label>
                 <div className="grid grid-cols-2 gap-4">
                     <button onClick={() => updateField('userRole', 'host')} className={`p-4 rounded-3xl border flex flex-col items-center gap-2 transition-all active:scale-95 ${formData.userRole === 'host' ? 'bg-pink-600 border-pink-500 text-white shadow-lg shadow-pink-500/20' : 'bg-white/5 border-white/10 text-slate-400'}`}>
                         <Home size={24}/>
@@ -203,48 +222,38 @@ const DetailsStep = memo(({ formData, updateField, showToast }) => {
         }, (err) => { showToast("Enable location services"); setLocating(false); });
     };
 
-    // ✅ ROOM IMAGE UPLOADER (For Hosts)
     const handleRoomImageUpload = async (e) => {
         const files = Array.from(e.target.files);
         if (!files.length) return;
-        
-        // Safety check: Prevent too many images
         if ((formData.roomImages?.length || 0) + files.length > 5) {
             showToast("Max 5 room photos allowed");
             return;
         }
-
         setUploadingRoom(true);
         try {
             const uploadPromises = files.map(async (file, index) => {
-                // 1. Compress to WebP
                 const blob = await compressImage(file);
-                // 2. Upload to storage (using 'room_' prefix)
                 const fileName = `room_${Date.now()}_${index}.webp`;
                 const storageRef = ref(storage, `users/${auth.currentUser.uid}/${fileName}`);
                 await uploadBytes(storageRef, blob);
                 return await getDownloadURL(storageRef);
             });
-
             const newUrls = await Promise.all(uploadPromises);
             updateField('roomImages', [...(formData.roomImages || []), ...newUrls]);
-            showToast(`${newUrls.length} room photos added`);
-        } catch (error) {
-            console.error(error);
-            showToast("Upload failed");
-        }
+            showToast(`${newUrls.length} photos added`);
+        } catch (error) { showToast("Upload failed"); }
         setUploadingRoom(false);
     };
 
     return (
         <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300 pb-8">
-            <InputBox label="Occupation" icon={<Briefcase size={14}/>} value={formData.occupation} onChange={v => updateField('occupation', v)} placeholder="Student / Job" />
+            <InputBox label="Occupation" icon={<Briefcase size={14}/>} value={formData.occupation} onChange={v => updateField('occupation', v)} placeholder="e.g. Software Engineer" />
             
             <div className="bg-white/5 p-4 rounded-3xl border border-white/10 flex justify-between items-center">
                 <div className="flex items-center gap-4">
                     <div className="p-3 bg-black/20 rounded-2xl"><MapPin size={18} className="text-emerald-400"/></div>
                     <div>
-                        <span className="text-[10px] font-bold text-slate-500 uppercase">Location</span>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Current City</span>
                         <span className="text-sm font-black text-white block">{locating ? "Locating..." : formData.city}</span>
                     </div>
                 </div>
@@ -255,16 +264,13 @@ const DetailsStep = memo(({ formData, updateField, showToast }) => {
 
             {formData.userRole === 'host' ? (
                 <>
-                    <SectionHeader icon={<Home size={16}/>} title="Room Details" desc="Tell us about your place" />
-                    <InputBox label="Society Name" icon={<Building size={14}/>} value={formData.societyName} onChange={v => updateField('societyName', v)} placeholder="e.g. Prestige Shantiniketan" />
+                    <SectionHeader icon={<Home size={16}/>} title="Room Details" desc="Details help hunters filter better" />
+                    <InputBox label="Society Name" icon={<Building size={14}/>} value={formData.societyName} onChange={v => updateField('societyName', v)} placeholder="e.g. Godrej Eternity" />
                     <SelectionGroup label="Furnishing" options={FURNISHING_OPTS} selected={formData.furnishing} onSelect={v => updateField('furnishing', v)} />
-                    
                     <div className="grid grid-cols-2 gap-4">
                         <InputBox label="Rent Ask" type="number" icon={<IndianRupee size={14}/>} value={formData.rent} onChange={v => updateField('rent', v)} placeholder="15000" />
-                        <InputBox label="Available" type="date" value={formData.availableFrom} onChange={v => updateField('availableFrom', v)} />
+                        <InputBox label="Available From" type="date" value={formData.availableFrom} onChange={v => updateField('availableFrom', v)} />
                     </div>
-
-                    {/* ✅ ROOM PHOTOS SECTION */}
                     <div className="pt-4 border-t border-white/5">
                         <label className="text-[10px] font-bold text-slate-500 uppercase mb-3 block ml-4">Room Photos (Max 5)</label>
                         <div className="grid grid-cols-3 gap-3">
@@ -273,21 +279,11 @@ const DetailsStep = memo(({ formData, updateField, showToast }) => {
                                 <span className="text-[9px] font-bold text-slate-500 mt-2">ADD</span>
                                 <input type="file" accept="image/*" multiple className="hidden" onChange={handleRoomImageUpload} />
                             </label>
-
                             <AnimatePresence>
-                                {(formData.roomImages || []).map((img, i) => (
-                                    <motion.div 
-                                        key={img}
-                                        initial={{ scale: 0.8, opacity: 0 }} 
-                                        animate={{ scale: 1, opacity: 1 }} 
-                                        exit={{ scale: 0, opacity: 0 }} 
-                                        className="relative aspect-square rounded-2xl overflow-hidden border border-white/10"
-                                    >
+                                {(formData.roomImages || []).map((img) => (
+                                    <motion.div key={img} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0, opacity: 0 }} className="relative aspect-square rounded-2xl overflow-hidden border border-white/10">
                                         <img src={img} className="w-full h-full object-cover" />
-                                        <button 
-                                            onClick={() => updateField('roomImages', formData.roomImages.filter(url => url !== img))} 
-                                            className="absolute top-1 right-1 bg-black/60 p-1.5 rounded-full text-white hover:bg-red-500 transition-colors"
-                                        >
+                                        <button onClick={() => updateField('roomImages', formData.roomImages.filter(url => url !== img))} className="absolute top-1 right-1 bg-black/60 p-1.5 rounded-full text-white hover:bg-red-500 transition-colors">
                                             <Trash2 size={10}/>
                                         </button>
                                     </motion.div>
@@ -299,10 +295,10 @@ const DetailsStep = memo(({ formData, updateField, showToast }) => {
             ) : (
                 <>
                     <div className="grid grid-cols-2 gap-4">
-                        <InputBox label="Move Date" type="date" value={formData.moveInDate} onChange={v => updateField('moveInDate', v)} />
-                        <InputBox label="Budget" type="number" icon={<IndianRupee size={14}/>} value={formData.rent} onChange={v => updateField('rent', v)} placeholder="12000" />
+                        <InputBox label="Move-in Date" type="date" value={formData.moveInDate} onChange={v => updateField('moveInDate', v)} />
+                        <InputBox label="Monthly Budget" type="number" icon={<IndianRupee size={14}/>} value={formData.rent} onChange={v => updateField('rent', v)} placeholder="12000" />
                     </div>
-                    <InputBox label="Work Location" icon={<Briefcase size={14}/>} value={formData.workLocation} onChange={v => updateField('workLocation', v)} placeholder="e.g. Cyber Hub" />
+                    <InputBox label="Preferred Work Area" icon={<Briefcase size={14}/>} value={formData.workLocation} onChange={v => updateField('workLocation', v)} placeholder="e.g. Whitefield / Tech Park" />
                 </>
             )}
         </div>
@@ -315,15 +311,13 @@ const PhotosStep = memo(({ formData, updateField, user, showToast }) => {
     const handleUpload = async (e) => {
         const files = Array.from(e.target.files);
         if (formData.images.length + files.length > 5) {
-          showToast(`Max 5 photos allowed`);
+          showToast("Max 5 photos allowed");
           return;
         }
         setPhotoLoading(true);
         try {
           const uploadPromises = files.map(async (file, index) => {
-            // 1. COMPRESS (WebP)
             const blob = await compressImage(file);
-            // 2. UPLOAD
             const fileName = `images_${Date.now()}_${index}.webp`;
             const storageRef = ref(storage, `users/${user.uid}/${fileName}`);
             await uploadBytes(storageRef, blob);
@@ -331,16 +325,13 @@ const PhotosStep = memo(({ formData, updateField, user, showToast }) => {
           });
           const urls = await Promise.all(uploadPromises);
           updateField('images', [...formData.images, ...urls]);
-        } catch (error) { 
-            console.error(error);
-            showToast("Upload failed"); 
-        }
+        } catch (error) { showToast("Upload failed"); }
         setPhotoLoading(false);
     };
 
     return (
         <div className="space-y-6 animate-in slide-in-from-right-4 fade-in duration-300 pb-8">
-            <SectionHeader icon={<Camera size={16}/>} title="My Photos" desc="At least 2 photos required" />
+            <SectionHeader icon={<Camera size={16}/>} title="Profile Photos" desc="Show your best self" />
             <div className="grid grid-cols-3 gap-3">
                 <label className="aspect-[3/4] bg-white/5 border-dashed border-2 border-white/10 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-pink-500/50 transition-colors">
                     {photoLoading ? <Loader2 className="animate-spin text-pink-500"/> : <Camera size={24} className="text-slate-500"/>}
@@ -359,7 +350,7 @@ const PhotosStep = memo(({ formData, updateField, user, showToast }) => {
             <div className="relative group pt-4">
                 <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block ml-4">Bio</label>
                 <textarea 
-                    placeholder="I'm a chill person looking for..." 
+                    placeholder="Write a short intro..." 
                     className="w-full bg-white/5 border border-white/10 rounded-3xl p-4 text-sm font-medium text-white outline-none focus:border-pink-500/50 min-h-[120px] resize-none focus:bg-white/10 transition-colors"
                     value={formData.bio || ""} 
                     onChange={e => updateField('bio', e.target.value)} 
@@ -369,33 +360,21 @@ const PhotosStep = memo(({ formData, updateField, user, showToast }) => {
     );
 });
 
-const LifestyleStep = memo(({ formData, updateField, user, onCancel }) => {
+// ✅ UPDATED: LifestyleStep includes Bug Report Button
+const LifestyleStep = memo(({ formData, updateField, user, onCancel, onReportBug }) => {
     const [confirmDelete, setConfirmDelete] = useState(false);
-    // ✅ NEW: Loading state for the delete process
     const [isDeleting, setIsDeleting] = useState(false); 
 
     const handleLogout = async () => { 
-        try { 
-            await signOut(auth); 
-            window.location.reload(); 
-        } catch (e) { console.error(e); } 
+        try { await signOut(auth); window.location.reload(); } catch (e) { console.error(e); } 
     };
 
     const handleDeleteAccount = async () => {
-        // 1. First click: Just toggle the "Are you sure?" mode
-        if (!confirmDelete) { 
-            setConfirmDelete(true); 
-            return; 
-        }
-
-        // 2. Second click: Start the actual deletion
-        setIsDeleting(true); // <--- LOCK THE UI INSTANTLY
+        if (!confirmDelete) { setConfirmDelete(true); return; }
+        setIsDeleting(true); 
 
         try {
-            // Delete Profile Data
             await deleteMyProfile(user.uid);
-
-            // Delete Auth Account (with re-auth fallback if needed)
             try {
                 await deleteUser(auth.currentUser);
             } catch (error) {
@@ -403,18 +382,16 @@ const LifestyleStep = memo(({ formData, updateField, user, onCancel }) => {
                     const provider = new GoogleAuthProvider();
                     await reauthenticateWithPopup(auth.currentUser, provider);
                     await deleteUser(auth.currentUser);
-                } else {
-                    throw error;
-                }
+                } else { throw error; }
             }
-
-            // Success
-            window.location.reload();
-
+            await signOut(auth);
+            sessionStorage.clear(); 
+            localStorage.clear();   
+            window.location.href = "/";
         } catch (e) {
             console.error("Delete failed:", e);
-            alert("Could not delete account. Please try again.");
-            setIsDeleting(false); // Reset if it failed
+            alert("Could not delete account: " + e.message);
+            setIsDeleting(false);
             setConfirmDelete(false);
         }
     };
@@ -438,56 +415,37 @@ const LifestyleStep = memo(({ formData, updateField, user, onCancel }) => {
                 })}
             </div>
 
-            {/* SETTINGS AREA */}
+            {/* SETTINGS SECTION */}
             <div className="pt-8 mt-8 border-t border-white/5 flex flex-col gap-4">
-                <div className="bg-white/5 rounded-2xl p-4 flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-400">Account Options</span>
-                    <div className="flex gap-4">
+                <div className="bg-white/5 rounded-2xl p-4 flex flex-col gap-4">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Settings</span>
+                    
+                    {/* ✅ Report Bug Button */}
+                    <button 
+                        onClick={onReportBug}
+                        className="w-full text-left flex items-center gap-3 text-xs font-bold text-slate-300 hover:text-white transition-colors py-2"
+                    >
+                        <div className="p-1.5 bg-indigo-500/20 rounded-lg text-indigo-400"><MessageSquareWarning size={14}/></div>
+                        Report Bug / Feedback
+                    </button>
+
+                    <div className="h-[1px] bg-white/5 w-full"/>
+
+                    <div className="flex justify-between items-center">
                         <button onClick={handleLogout} className="text-xs font-bold text-white hover:text-slate-300 transition-colors flex items-center gap-2">
                             <LogOut size={14} /> Sign Out
                         </button>
                         
-                        <div className="w-[1px] h-4 bg-white/10"></div>
-                        
-                        {/* ✅ UPDATED DELETE BUTTON */}
                         <button 
                             onClick={handleDeleteAccount} 
-                            disabled={isDeleting} // Disable button while deleting
-                            className={`text-xs font-bold transition-colors flex items-center gap-2 ${
-                                confirmDelete 
-                                    ? "text-red-500 hover:text-red-400 bg-red-500/10 px-3 py-1.5 rounded-lg" 
-                                    : "text-slate-500 hover:text-white"
-                            }`}
+                            disabled={isDeleting}
+                            className={`text-xs font-bold transition-colors flex items-center gap-2 ${confirmDelete ? "text-red-500 bg-red-500/10 px-3 py-1.5 rounded-lg" : "text-slate-500"}`}
                         >
-                            {isDeleting ? (
-                                <>
-                                    <Loader2 size={12} className="animate-spin"/> 
-                                    Erasing...
-                                </>
-                            ) : (
-                                confirmDelete ? "Confirm Delete?" : "Delete"
-                            )}
+                            {isDeleting ? <><Loader2 size={12} className="animate-spin"/> Erasing...</> : (confirmDelete ? "Confirm?" : "Delete Account")}
                         </button>
                     </div>
                 </div>
-
-                {/* ✅ EXTRA VISUAL FEEDBACK */}
-                {isDeleting && (
-                    <div className="text-center animate-pulse space-y-1">
-                         <p className="text-[10px] font-bold text-red-500">
-                             ⚠️ Deleting all your data...
-                         </p>
-                         <p className="text-[9px] text-slate-500">
-                             Please do not close this window.
-                         </p>
-                    </div>
-                )}
-                
-                {confirmDelete && !isDeleting && (
-                    <p className="text-[10px] text-center text-slate-500">
-                        This action is permanent. All chats and matches will be lost.
-                    </p>
-                )}
+                {isDeleting && <p className="text-center text-[9px] text-red-500 animate-pulse uppercase font-black">Permanent Wipe in progress...</p>}
             </div>
         </div>
     );
@@ -497,9 +455,9 @@ const LifestyleStep = memo(({ formData, updateField, user, onCancel }) => {
 export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) => {
   const [currentStep, setCurrentStep] = useState(0); 
   const [isSaving, setIsSaving] = useState(false);
+  const [showBugModal, setShowBugModal] = useState(false); // ✅ Local State for Bug Modal
   const isLoaded = useRef(false);
 
-  // Initialize state
   const [formData, setFormData] = useState({
     name: "", age: "", gender: "Male",
     occupation: "", rent: "", bio: "", 
@@ -518,7 +476,6 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
       return existingData && existingData.name && existingData.name.length > 0;
   }, [existingData]);
 
-  // --- 1. INITIAL LOAD ---
   useEffect(() => {
     if (!isLoaded.current) {
       if (existingData) {
@@ -527,7 +484,7 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
             ...existingData,
             tags: existingData.tags || [],
             images: existingData.images || [],
-            roomImages: existingData.roomImages || [], // Load existing room images
+            roomImages: existingData.roomImages || [],
             name: existingData.name || "",
             bio: existingData.bio || "",
             userRole: existingData.userRole || "hunter"
@@ -541,7 +498,6 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
     }
   }, [existingData]);
 
-  // --- 2. AUTO-SAVE & HANDLERS ---
   useEffect(() => {
     if (!isLoaded.current) return;
     const isDirty = JSON.stringify(formData) !== JSON.stringify(lastSavedRef.current);
@@ -559,7 +515,6 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
     return () => clearTimeout(timer);
   }, [formData, user.uid]);
 
-  // Stable Update Function to prevent re-renders
   const updateField = useCallback((field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   }, []);
@@ -583,63 +538,41 @@ export const CreateProfileForm = ({ user, existingData, onCancel, showToast }) =
 
   const isLastStep = currentStep === STEPS.length - 1;
 
-  // --- RENDER ---
   return (
-    <motion.div 
-      initial={{ opacity: 0, scale: 0.95 }} 
-      animate={{ opacity: 1, scale: 1 }} 
-      exit={{ opacity: 0, scale: 0.95 }} 
-      className="fixed inset-0 z-[100] bg-[#050505] text-white flex flex-col font-sans md:max-w-xl w-full mx-auto md:border-x md:border-white/10 shadow-2xl h-[100dvh]" 
-    >
-      {/* 1. HEADER */}
-      <WizardHeader 
-        currentStep={currentStep} 
-        onCancel={onCancel} 
-        onPrev={() => setCurrentStep(prev => prev - 1)}
-        isSaving={isSaving}
-      />
+    <>
+        <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }} 
+        animate={{ opacity: 1, scale: 1 }} 
+        exit={{ opacity: 0, scale: 0.95 }} 
+        className="fixed inset-0 z-[100] bg-[#050505] text-white flex flex-col font-sans md:max-w-xl w-full mx-auto md:border-x md:border-white/10 shadow-2xl h-[100dvh]" 
+        >
+        <WizardHeader currentStep={currentStep} onCancel={onCancel} onPrev={() => setCurrentStep(prev => prev - 1)} isSaving={isSaving} />
+        <div className="flex-1 overflow-y-auto p-5 md:p-8 space-y-8 scrollbar-hide pb-32">
+            {currentStep === 0 && <IdentityStep formData={formData} updateField={updateField} isExistingUser={isExistingUser} />}
+            {currentStep === 1 && <DetailsStep formData={formData} updateField={updateField} showToast={showToast} />}
+            {currentStep === 2 && <PhotosStep formData={formData} updateField={updateField} user={user} showToast={showToast} />}
+            {currentStep === 3 && (
+                <LifestyleStep 
+                    formData={formData} 
+                    updateField={updateField} 
+                    user={user} 
+                    onCancel={onCancel}
+                    onReportBug={() => setShowBugModal(true)} // ✅ Trigger
+                />
+            )}
+        </div>
+        <div className="flex-none p-6 bg-[#050505] border-t border-white/10 flex justify-between items-center z-50 pb-8 md:pb-6">
+            <button onClick={isLastStep ? handleSaveAndClose : handleNext} className="w-full py-4 bg-white text-black rounded-full font-black text-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 shadow-xl shadow-white/10">
+                {isLastStep ? <>FINISH & SAVE <Save size={18}/></> : <>NEXT STEP <ArrowRight size={18}/></>}
+            </button>
+        </div>
+        </motion.div>
 
-      {/* 2. BODY (Isolated Steps) */}
-      <div className="flex-1 overflow-y-auto p-5 md:p-8 space-y-8 scrollbar-hide pb-32">
-        {currentStep === 0 && (
-            <IdentityStep 
-                formData={formData} 
-                updateField={updateField} 
-                isExistingUser={isExistingUser} 
-            />
-        )}
-        {currentStep === 1 && (
-            <DetailsStep 
-                formData={formData} 
-                updateField={updateField} 
-                showToast={showToast}
-            />
-        )}
-        {currentStep === 2 && (
-            <PhotosStep 
-                formData={formData} 
-                updateField={updateField} 
-                user={user}
-                showToast={showToast}
-            />
-        )}
-        {currentStep === 3 && (
-            <LifestyleStep 
-                formData={formData} 
-                updateField={updateField} 
-                user={user}
-                onCancel={onCancel}
-            />
-        )}
-      </div>
-
-      {/* 3. FOOTER */}
-      <div className="flex-none p-6 bg-[#050505] border-t border-white/10 flex justify-between items-center z-50 pb-8 md:pb-6">
-        <button onClick={isLastStep ? handleSaveAndClose : handleNext} className="w-full py-4 bg-white text-black rounded-full font-black text-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 shadow-xl shadow-white/10">
-            {isLastStep ? <>FINISH & SAVE <Save size={18}/></> : <>NEXT STEP <ArrowRight size={18}/></>}
-        </button>
-      </div>
-    </motion.div>
+        {/* ✅ RENDER BUG MODAL */}
+        <AnimatePresence>
+            {showBugModal && <BugReportModal user={user} onClose={() => setShowBugModal(false)} />}
+        </AnimatePresence>
+    </>
   );
 };
 

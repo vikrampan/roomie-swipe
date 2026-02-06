@@ -3,7 +3,6 @@ import {
   orderBy, addDoc, updateDoc, serverTimestamp, limit 
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { triggerMessageEmail } from './emailService';
 
 const profileCache = new Map();
 
@@ -33,12 +32,13 @@ export const fetchMatches = async (currentUserId) => {
         results.push({
           id: matchDoc.id,
           theirId,
-          email: data.profiles[theirId].email, // ✅ Accessing denormalized email
           ...data.profiles[theirId],
           lastMsg: data.lastMsg || "",
           lastSenderId: data.lastSenderId || "",
           timestamp: data.lastActivity,
-          hasNotification: data.lastMsg && data.lastSenderId !== currentUserId
+          // Use the new unreadCount from Cloud Functions if available, fallback to boolean
+          unreadCount: data.unreadCount?.[currentUserId] || 0,
+          hasNotification: (data.unreadCount?.[currentUserId] > 0) || (data.lastMsg && data.lastSenderId !== currentUserId)
         });
       } else {
         missingProfiles.add(theirId);
@@ -64,54 +64,53 @@ export const fetchMatches = async (currentUserId) => {
         return {
             id: item.id,
             theirId: item.theirId,
-            email: profile?.email || "",
             name: profile?.name || "Unknown",
             img: (profile?.images && profile.images[0]) || profile?.img || "",
             lastMsg: item.data.lastMsg || "",
             lastSenderId: item.data.lastSenderId || "",
             timestamp: item.data.lastActivity,
-            hasNotification: item.data.lastMsg && item.data.lastSenderId !== currentUserId
+            unreadCount: item.data.unreadCount?.[currentUserId] || 0,
+            hasNotification: (item.data.unreadCount?.[currentUserId] > 0) || (item.data.lastMsg && item.data.lastSenderId !== currentUserId)
         };
     });
   } catch (error) { console.error("Match fetch failed", error); return []; }
 };
 
-// --- 2. SEND MESSAGE (With Email Trigger) ---
+// --- 2. SEND MESSAGE ---
 export const sendMessage = async (matchId, senderId, text) => {
   if (!text || !text.trim() || !matchId.includes('_')) return;
 
   try {
-    // 1. Save Message to Subcollection
+    // Save Message to Subcollection
     await addDoc(collection(db, "matches", matchId, "messages"), {
       senderId, 
       text, 
       timestamp: serverTimestamp()
     });
 
-    // 2. Update Match Document
+    // Update Match Document (Cloud Function will handle unreadCount increment)
     const matchRef = doc(db, "matches", matchId);
-    const matchSnap = await getDoc(matchRef);
-    const matchData = matchSnap.data();
-
     await updateDoc(matchRef, {
       lastMsg: text, 
       lastSenderId: senderId, 
       lastActivity: serverTimestamp()
     });
 
-    // 3. 🚀 TRIGGER MESSAGE EMAIL
-    const recipientId = matchData.users.find(uid => uid !== senderId);
-    const recipient = matchData.profiles[recipientId];
-    const sender = matchData.profiles[senderId];
-
-    if (recipient?.email) {
-        triggerMessageEmail(recipient.email, sender.name, text);
-    }
-
   } catch (error) { console.error("Send Failed", error); throw error; }
 };
 
-// --- 3. SUBSCRIBE TO MESSAGES ---
+// --- 3. RESET UNREAD COUNT ---
+export const markAsRead = async (matchId, currentUserId) => {
+    if (!matchId || !currentUserId) return;
+    try {
+        const matchRef = doc(db, "matches", matchId);
+        await updateDoc(matchRef, {
+            [`unreadCount.${currentUserId}`]: 0
+        });
+    } catch (e) { console.warn("Reset count failed", e); }
+};
+
+// --- 4. SUBSCRIBE TO MESSAGES ---
 export const subscribeToMessages = (matchId, callback) => {
   if (!matchId || !matchId.includes('_')) { callback([]); return () => {}; }
   const q = query(collection(db, "matches", matchId, "messages"), orderBy("timestamp", "asc"), limit(20));

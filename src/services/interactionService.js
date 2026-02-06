@@ -1,6 +1,5 @@
-import { doc, runTransaction, setDoc, deleteDoc, getDoc, serverTimestamp } from 'firebase/firestore'; 
+import { doc, runTransaction, setDoc, deleteDoc, getDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore'; 
 import { db } from '../firebase';
-import { triggerMatchEmail, triggerLikeEmail } from './emailService';
 
 // --- HELPER: Get Minimal Profile Snapshot ---
 const getProfileSnapshot = async (uid) => {
@@ -21,7 +20,7 @@ const getProfileSnapshot = async (uid) => {
             return { 
                 uid: uid,
                 name: data.name || "Unknown", 
-                email: data.email || "", // ✅ Required for Email Service
+                email: data.email || "", 
                 age: data.age || "?",
                 img: displayImage,
                 userRole: data.userRole || "hunter", 
@@ -77,6 +76,7 @@ export const swipeRight = async (myUid, targetUid) => {
           timestamp: Date.now(),
           lastMsg: "It's a Match! Say hello 👋",
           lastSenderId: "system",
+          unreadCount: { [myUid]: 0, [targetUid]: 0 },
           readStatus: { [myUid]: false, [targetUid]: false } 
         });
 
@@ -86,16 +86,6 @@ export const swipeRight = async (myUid, targetUid) => {
       
       return { isMatch: false };
     });
-
-    // --- 🚀 EMAIL TRIGGERS ---
-    if (result.isMatch) {
-        // Mutual Match Emails
-        triggerMatchEmail(myProfileSnapshot.email, myProfileSnapshot.name, theirProfileSnapshot.name);
-        triggerMatchEmail(theirProfileSnapshot.email, theirProfileSnapshot.name, myProfileSnapshot.name);
-    } else {
-        // "Someone Liked You" Email (Secret Admirer)
-        triggerLikeEmail(theirProfileSnapshot.email, theirProfileSnapshot.name);
-    }
 
     return result;
   } catch (e) {
@@ -129,4 +119,21 @@ export const unmatchUser = async (myUid, targetUid) => {
     await deleteDoc(doc(db, "interactions", `${targetUid}_${myUid}`));
     return true;
   } catch (e) { console.error("Unmatch Error:", e); return false; }
+};
+
+// --- 4. SUBMIT BUG REPORT / FEEDBACK (New Feature) ---
+export const submitFeedback = async (uid, message) => {
+    if (!message || !message.trim()) return;
+    try {
+        await addDoc(collection(db, "feedback"), {
+            uid: uid,
+            message: message,
+            timestamp: serverTimestamp(),
+            status: 'new' // for admin dashboard filtering later
+        });
+        return true;
+    } catch (e) {
+        console.error("Feedback Error:", e);
+        throw new Error("Could not send feedback");
+    }
 };

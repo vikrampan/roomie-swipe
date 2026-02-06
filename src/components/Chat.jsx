@@ -4,7 +4,7 @@ import {
   Send, X, MessageSquare, MoreVertical, ShieldAlert, HeartCrack, 
   ChevronLeft, CheckCheck, Image as ImageIcon
 } from 'lucide-react';
-import { fetchMatches, subscribeToMessages, sendMessage } from '../services/chatService'; 
+import { fetchMatches, subscribeToMessages, sendMessage, markAsRead } from '../services/chatService'; 
 import { unmatchUser } from '../services/interactionService';
 
 // --- MAIN WRAPPER ---
@@ -27,6 +27,17 @@ export const ChatModal = ({ user, onClose }) => {
     return () => { isMounted = false; };
   }, [user]);
 
+  // Handle selecting a match and resetting unread count
+  const handleSelectMatch = useCallback((match) => {
+      setActiveMatch(match);
+      // ✅ RESET COUNTER: Tell the backend we've seen these messages
+      markAsRead(match.id, user.uid);
+      // Locally clear notification for instant feedback
+      setMatches(prev => prev.map(m => 
+          m.id === match.id ? { ...m, hasNotification: false, unreadCount: 0 } : m
+      ));
+  }, [user.uid]);
+
   return (
     <motion.div 
       initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
@@ -45,7 +56,7 @@ export const ChatModal = ({ user, onClose }) => {
                     <MessageSquare size={40} className="mb-2"/><span className="text-[10px] font-bold uppercase tracking-widest">No matches yet</span>
                 </div>
             ) : (
-                matches.map(m => <MatchItem key={m.id} match={m} isActive={activeMatch?.id === m.id} onSelect={setActiveMatch} />)
+                matches.map(m => <MatchItem key={m.id} match={m} isActive={activeMatch?.id === m.id} onSelect={() => handleSelectMatch(m)} />)
             )}
           </div>
       </div>
@@ -64,10 +75,14 @@ export const ChatModal = ({ user, onClose }) => {
 
 // --- COMPONENT: MATCH ITEM ---
 const MatchItem = memo(({ match, isActive, onSelect }) => (
-    <div onClick={() => onSelect(match)} className={`flex items-center gap-4 p-4 mb-1 rounded-2xl cursor-pointer transition-all ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+    <div onClick={onSelect} className={`flex items-center gap-4 p-4 mb-1 rounded-2xl cursor-pointer transition-all ${isActive ? 'bg-white/10' : 'hover:bg-white/5'}`}>
         <div className="relative">
             <img src={match.img || 'https://via.placeholder.com/150'} alt={match.name} className="w-12 h-12 rounded-full object-cover bg-slate-800"/>
-            {match.hasNotification && <div className="absolute top-0 right-0 w-3 h-3 bg-pink-500 border-2 border-black rounded-full"/>}
+            {match.hasNotification && (
+                <div className="absolute -top-1 -right-1 min-w-[20px] h-[20px] px-1 bg-pink-500 border-2 border-black rounded-full flex items-center justify-center text-[10px] font-black">
+                    {match.unreadCount > 0 ? match.unreadCount : ""}
+                </div>
+            )}
         </div>
         <div className="flex-1 min-w-0">
             <div className="flex justify-between items-center mb-0.5">
@@ -92,11 +107,9 @@ const ChatWindow = ({ activeMatch, user, onBack }) => {
 
         const handleResize = () => {
             const viewport = window.visualViewport;
-            // Calculate how much the keyboard is pushing up
             const offset = window.innerHeight - viewport.height;
             setKeyboardHeight(offset > 0 ? offset : 0);
             
-            // Auto-scroll to bottom if keyboard opens
             if (offset > 0) {
                 setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
             }
@@ -125,7 +138,6 @@ const ChatWindow = ({ activeMatch, user, onBack }) => {
     return (
         <div 
             className="flex-[2] flex flex-col bg-[#080808] h-full overflow-hidden relative transition-all duration-300 ease-out"
-            // ✅ PHYSICALLY PUSH UP based on keyboard height
             style={{ paddingBottom: `${keyboardHeight}px` }} 
         >
             {/* Header */}
@@ -157,7 +169,7 @@ const ChatWindow = ({ activeMatch, user, onBack }) => {
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* ✅ INPUT BAR: Safe Area and Keyboard Protected */}
+            {/* INPUT BAR */}
             <div className="shrink-0 bg-black/80 backdrop-blur-xl border-t border-white/10 px-4 pt-4 pb-[env(safe-area-inset-bottom,20px)]">
                 <ChatInput activeMatchId={activeMatch.id} userId={user.uid} />
             </div>
@@ -189,7 +201,9 @@ const ChatInput = ({ activeMatchId, userId }) => {
         if (!inputText.trim()) return;
         const tempText = inputText;
         setInputText(""); 
-        try { await sendMessage(activeMatchId, userId, tempText); } 
+        try { 
+            await sendMessage(activeMatchId, userId, tempText); 
+        } 
         catch (e) { setInputText(tempText); }
     };
 
@@ -201,7 +215,7 @@ const ChatInput = ({ activeMatchId, userId }) => {
                 placeholder="Type a message..."
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
-                onFocus={() => setTimeout(() => window.scrollTo(0,0), 100)} // Ensures Safari doesn't bounce the whole page
+                onFocus={() => setTimeout(() => window.scrollTo(0,0), 100)} 
             />
             <button type="submit" disabled={!inputText.trim()} className="p-2.5 bg-pink-600 rounded-full text-white disabled:opacity-50 hover:bg-pink-500 transition-colors shadow-lg">
                 <Send size={18} fill="currentColor" className="ml-0.5" />

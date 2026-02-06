@@ -1,12 +1,14 @@
-import React, { useEffect, memo } from 'react';
-import { motion } from 'framer-motion';
+import React, { useEffect, memo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, ShieldAlert, MessageCircle, Heart, Zap, Sparkles, 
-  MapPin, Moon, Users, Volume2, ShieldCheck, Mail, Building 
+  MapPin, Moon, Users, Volume2, ShieldCheck, Mail, Building,
+  Bug, Send
 } from 'lucide-react';
 import { auth } from '../firebase';
 import confetti from 'canvas-confetti';
-import { SecureImage } from './SecureImage'; // ✅ Import your secure canvas component
+import { SecureImage } from './SecureImage'; 
+import { submitFeedback } from '../services/interactionService';
 
 // --- 1. MATCH POPUP (Celebration) ---
 export const MatchPopup = memo(({ person, onClose, onChat }) => {
@@ -41,7 +43,7 @@ export const MatchPopup = memo(({ person, onClose, onChat }) => {
            <Sparkles className="absolute -top-8 -right-8 text-yellow-400 animate-pulse" size={48} fill="currentColor"/>
         </motion.div>
 
-        {/* Profile Pictures overlapping using SecureImage */}
+        {/* Profile Pictures overlapping */}
         <div className="flex items-center justify-center mb-12 relative h-32 w-full">
             <div className="w-28 h-28 rounded-full border-4 border-black absolute z-10 shadow-2xl overflow-hidden -translate-x-5">
                 <SecureImage 
@@ -86,12 +88,10 @@ export const MatchPopup = memo(({ person, onClose, onChat }) => {
 
 // --- 2. DETAIL MODAL (Full Profile View) ---
 export const DetailModal = memo(({ person, onClose }) => {
-  // Select the cover image source
   const coverImageSrc = (person.userRole === 'host' && person.roomImages?.length > 0) 
     ? person.roomImages[0] 
     : (person.images?.[0] || person.img);
 
-  // Merge all available photos for the gallery
   const galleryImages = [...(person.roomImages || []), ...(person.images || [])];
 
   return (
@@ -116,7 +116,6 @@ export const DetailModal = memo(({ person, onClose }) => {
 
         <div className="flex-1 overflow-y-auto scrollbar-hide relative bg-[#0a0a0a]">
             
-            {/* HERO COVER IMAGE - PROTECTED BY CANVAS */}
             <div className="h-[50vh] w-full relative">
                 <SecureImage 
                     src={coverImageSrc} 
@@ -145,9 +144,7 @@ export const DetailModal = memo(({ person, onClose }) => {
                 </div>
             </div>
 
-            {/* CONTENT BODY */}
             <div className="px-8 pb-12 space-y-8">
-                
                 <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white/5 border border-white/5 p-4 rounded-3xl">
                         <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Rent</p>
@@ -206,7 +203,6 @@ export const DetailModal = memo(({ person, onClose }) => {
                     </div>
                 </div>
 
-                {/* PHOTO GALLERY - ALL IMAGES PROTECTED BY SECUREIMAGE CANVAS */}
                 <div className="grid grid-cols-2 gap-3 pt-4">
                     {galleryImages.map((img, i) => (
                         <SecureImage 
@@ -274,4 +270,74 @@ export const ReportModal = memo(({ person, onConfirm, onCancel }) => {
       </motion.div>
     </motion.div>
   );
+});
+
+// --- 4. BUG REPORT MODAL (New!) ---
+export const BugReportModal = memo(({ user, onClose }) => {
+    const [message, setMessage] = useState("");
+    const [status, setStatus] = useState("idle"); // idle, sending, success, error
+
+    const handleSubmit = async () => {
+        if (!message.trim()) return;
+        setStatus("sending");
+        try {
+            await submitFeedback(user.uid, message);
+            setStatus("success");
+            setTimeout(onClose, 2000); // Close after showing success
+        } catch (e) {
+            setStatus("error");
+        }
+    };
+
+    return (
+      <motion.div 
+        initial={{ opacity: 0, y: 50 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        exit={{ opacity: 0, y: 50 }} 
+        className="fixed inset-0 z-[150] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6"
+      >
+        <div className="w-full max-w-sm bg-[#111] rounded-[2.5rem] p-6 border border-white/10 relative">
+            <button onClick={onClose} className="absolute top-4 right-4 p-2 text-slate-500 hover:text-white"><X size={20}/></button>
+            
+            {status === "success" ? (
+                <div className="py-10 text-center animate-in zoom-in">
+                    <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Sparkles className="text-emerald-400" size={32}/>
+                    </div>
+                    <h3 className="text-xl font-black text-white">Received!</h3>
+                    <p className="text-slate-400 text-sm mt-2">You're a legend. Thanks for helping.</p>
+                </div>
+            ) : (
+                <>
+                    <div className="text-center mb-6">
+                        <div className="w-12 h-12 bg-pink-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                            <Bug className="text-pink-500" size={24}/>
+                        </div>
+                        <h3 className="text-xl font-black text-white">Spot a Gremlin?</h3>
+                        <p className="text-slate-400 text-xs mt-2 leading-relaxed">
+                            We are a tiny team. If something broke or you have an idea, let us know directly!
+                        </p>
+                    </div>
+
+                    <textarea 
+                        className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl p-4 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-pink-500/50 resize-none mb-4"
+                        placeholder="Tell us what happened..."
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        autoFocus
+                    />
+
+                    <button 
+                        onClick={handleSubmit}
+                        disabled={status === "sending" || !message.trim()}
+                        className="w-full py-4 bg-white text-black rounded-xl font-bold text-sm uppercase tracking-widest flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:scale-100"
+                    >
+                        {status === "sending" ? "Sending..." : <>Send to Team <Send size={16}/></>}
+                    </button>
+                    {status === "error" && <p className="text-red-500 text-xs text-center mt-3">Failed to send. Try again?</p>}
+                </>
+            )}
+        </div>
+      </motion.div>
+    );
 });
