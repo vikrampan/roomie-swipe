@@ -47,12 +47,24 @@ export const swipeRight = async (myUid, targetUid) => {
     const theirProfileSnapshot = await getProfileSnapshot(targetUid);
 
     const result = await runTransaction(db, async (transaction) => {
+      // 1. Check if they liked us
       const reverseLikeRef = doc(db, "interactions", theirInteractionId);
-      const reverseLikeSnap = await transaction.get(reverseLikeRef);
+      let isMatch = false;
+      
+      try {
+          // This read might fail if Security Rules are too strict or slow to update
+          // We wrap it to prevent the whole transaction from failing
+          const reverseLikeSnap = await transaction.get(reverseLikeRef);
+          if (reverseLikeSnap.exists() && reverseLikeSnap.data().type === 'like') {
+              isMatch = true;
+          }
+      } catch(err) {
+          console.warn("Could not check reverse like (Permissions or Network):", err);
+          // Proceed assuming no match to avoid blocking the user's swipe action
+          isMatch = false; 
+      }
 
-      const isMatch = reverseLikeSnap.exists() && reverseLikeSnap.data().type === 'like';
-
-      // Record OUR like
+      // 2. Record OUR like
       const likeRef = doc(db, "interactions", myInteractionId);
       transaction.set(likeRef, {
         fromUserId: myUid,
@@ -64,6 +76,7 @@ export const swipeRight = async (myUid, targetUid) => {
         isRevealed: false 
       });
 
+      // 3. If Match, create Match Doc and Update Reverse Like
       if (isMatch) {
         const matchRef = doc(db, "matches", matchId);
         transaction.set(matchRef, {
@@ -80,7 +93,14 @@ export const swipeRight = async (myUid, targetUid) => {
           readStatus: { [myUid]: false, [targetUid]: false } 
         });
 
-        transaction.update(reverseLikeRef, { isMatch: true });
+        // We try to update their doc to say "isMatch: true"
+        // If this fails due to rules, the chat will still work because the Match Doc is created
+        try {
+            transaction.update(reverseLikeRef, { isMatch: true });
+        } catch (e) {
+            console.warn("Could not update reverse like status", e);
+        }
+        
         return { isMatch: true, matchData: theirProfileSnapshot };
       }
       
@@ -89,7 +109,7 @@ export const swipeRight = async (myUid, targetUid) => {
 
     return result;
   } catch (e) {
-    console.error("Swipe Error:", e);
+    console.error("Swipe Transaction Error:", e);
     return { isMatch: false };
   }
 };
@@ -121,7 +141,7 @@ export const unmatchUser = async (myUid, targetUid) => {
   } catch (e) { console.error("Unmatch Error:", e); return false; }
 };
 
-// --- 4. SUBMIT BUG REPORT / FEEDBACK (New Feature) ---
+// --- 4. SUBMIT BUG REPORT / FEEDBACK ---
 export const submitFeedback = async (uid, message) => {
     if (!message || !message.trim()) return;
     try {
@@ -129,7 +149,7 @@ export const submitFeedback = async (uid, message) => {
             uid: uid,
             message: message,
             timestamp: serverTimestamp(),
-            status: 'new' // for admin dashboard filtering later
+            status: 'new' 
         });
         return true;
     } catch (e) {

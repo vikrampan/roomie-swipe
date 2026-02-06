@@ -3,12 +3,18 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { auth, db, provider } from './firebase';
 import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, collection, query, where, getDocs } from 'firebase/firestore'; 
+import { Toaster, toast } from 'sonner'; // Added for notifications
+
+// Icons
+import { MessageCircle, User, Loader2, Minus, Plus, MapPin, Sparkles, X, Heart, Radar } from 'lucide-react';
+
+// Services
 import { LandingPage } from './components/LandingPage';
 import { triggerHaptic } from './services/utils';
 import { swipeRight, swipeLeft } from './services/interactionService';
-import { getNearbyUsers, injectSmartAds } from './services/feedService';
+import { getNearbyUsers } from './services/feedService';
 import { fetchMatches } from './services/chatService'; 
-import { MessageCircle, User, Loader2, Minus, Plus, MapPin, Sparkles, X, Heart, Radar } from 'lucide-react';
+import { AFFILIATE_ADS } from './data/adData'; // ✅ Import Ads Data
 
 // --- LAZY LOAD COMPONENTS ---
 const Card = lazy(() => import('./components/Cards').then(m => ({ default: m.Card })));
@@ -18,7 +24,9 @@ const CreateProfileForm = lazy(() => import('./components/Forms').then(m => ({ d
 const MatchPopup = lazy(() => import('./components/Modals').then(m => ({ default: m.MatchPopup })));
 const DetailModal = lazy(() => import('./components/Modals').then(m => ({ default: m.DetailModal })));
 const ReportModal = lazy(() => import('./components/Modals').then(m => ({ default: m.ReportModal })));
+const BugReportModal = lazy(() => import('./components/Modals').then(m => ({ default: m.BugReportModal }))); // ✅ Added Bug Modal
 const LikesPage = lazy(() => import('./pages/LikesPage').then(m => ({ default: m.LikesPage })));
+const SecureImage = lazy(() => import('./components/SecureImage').then(m => ({ default: m.SecureImage }))); // ✅ Added SecureImage
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -31,9 +39,13 @@ export default function App() {
   // NAVIGATION STATE
   const [activeTab, setActiveTab] = useState('swipe');
   
+  // MODAL STATES
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [reportingPerson, setReportingPerson] = useState(null);
   const [matchData, setMatchData] = useState(null);
+  const [showBugModal, setShowBugModal] = useState(false); // ✅ Bug Modal State
+
+  // FEED STATE
   const [searchRadius, setSearchRadius] = useState(50);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasNewLikes, setHasNewLikes] = useState(false); 
@@ -96,7 +108,7 @@ export default function App() {
     return () => unsub();
   }, [user, profileCheckComplete]);
 
-  // --- 3. NOTIFICATION POLLER (Optimized) ---
+  // --- 3. NOTIFICATION POLLER ---
   useEffect(() => {
     if (!user) return;
     const checkNotifications = async () => {
@@ -122,7 +134,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user]);
 
-  // --- 4. FEED LOGIC ---
+  // --- 4. FEED LOGIC (With Smart Ad Injection) ---
   useEffect(() => {
     const fetchFeed = async () => {
       if (loading || !user || !isProfileComplete || !myProfile?.lat || activeTab !== 'swipe') {
@@ -133,11 +145,37 @@ export default function App() {
         isFetchingRef.current = true;
         try {
           const nearby = await getNearbyUsers(user, {lat: myProfile.lat, lng: myProfile.lng}, searchRadius, { role: myProfile.userRole }, []);
+          
+          // Filter out already swiped users
           const notSwipedPeople = nearby.filter(p => !swipedIdsRef.current.has(p.id));
-          const feedWithAds = injectSmartAds(notSwipedPeople, myProfile);
-          if (feedWithAds.length > 0) {
+          
+          // ✅ MERGE ADS INTO FEED
+          let mixedFeed = [];
+          let adIndex = 0;
+          
+          notSwipedPeople.forEach((profile, index) => {
+              mixedFeed.push(profile);
+              // Insert Ad every 4 cards
+              if ((index + 1) % 4 === 0) {
+                  const ad = AFFILIATE_ADS[adIndex % AFFILIATE_ADS.length];
+                  mixedFeed.push({ 
+                      ...ad, 
+                      isAd: true, 
+                      id: `ad_${ad.id}_${Date.now()}_${index}` // Unique ID for React key
+                  });
+                  adIndex++;
+              }
+          });
+
+          // Add a "House Ad" at the end if feed is short
+          if (mixedFeed.length > 0 && mixedFeed.length < 5) {
+             const houseAd = AFFILIATE_ADS.find(a => a.type === 'house') || AFFILIATE_ADS[0];
+             mixedFeed.push({ ...houseAd, isAd: true, id: `house_end_${Date.now()}` });
+          }
+
+          if (mixedFeed.length > 0) {
               setPeople(prev => {
-                  const uniqueNewItems = feedWithAds.filter(newItem => !prev.some(existingItem => existingItem.id === newItem.id));
+                  const uniqueNewItems = mixedFeed.filter(newItem => !prev.some(existingItem => existingItem.id === newItem.id));
                   return [...prev, ...uniqueNewItems];
               });
           }
@@ -151,28 +189,44 @@ export default function App() {
   const handleIncreaseRadius = useCallback(() => setSearchRadius(prev => Math.min(500, prev + 50)), []);
   const handleDecreaseRadius = useCallback(() => setSearchRadius(prev => Math.max(50, prev - 50)), []);
 
+  // ✅ UPDATED SWIPE HANDLER
   const onSwipe = useCallback(async (direction, item) => {
     if (!user) return;
+    
+    // Remove from UI immediately
     swipedIdsRef.current.add(item.id);
     setPeople(prev => prev.filter(p => p.id !== item.id));
     triggerHaptic(direction === 'right' ? 'success' : 'light');
+
+    // 1. IS IT AN AD?
     if (item.isAd) {
-      if (direction === 'right') window.open(item.link, '_blank');
+      if (direction === 'right') {
+          // Open Link
+          window.open(item.link, '_blank');
+      }
       return; 
     }
+
+    // 2. IS IT A REAL USER?
     try {
       if (direction === 'right') {
         const result = await swipeRight(user.uid, item.id);
         if (result?.isMatch) setMatchData(item);
-      } else { await swipeLeft(user.uid, item.id); }
-    } catch (error) { console.error(error); }
+      } else { 
+        await swipeLeft(user.uid, item.id); 
+      }
+    } catch (error) { 
+        console.error("Swipe Error:", error); 
+    }
   }, [user]);
 
   const handleSwipeButton = useCallback((direction) => {
     if (people.length === 0) return;
     const topPerson = people[people.length - 1]; 
+    // Trigger visual swipe
     setPeople(prev => prev.map(p => p.id === topPerson.id ? { ...p, swipeDirection: direction } : p));
-    setTimeout(() => { onSwipe(direction, topPerson); }, 50); 
+    // Trigger logic after animation
+    setTimeout(() => { onSwipe(direction, topPerson); }, 200); 
   }, [people, onSwipe]);
 
   const handleCardLeftScreen = useCallback((id) => { setPeople(prev => prev.filter(p => p.id !== id)); }, []);
@@ -202,6 +256,7 @@ export default function App() {
 
   return (
     <div className="h-screen bg-[#080808] text-white overflow-hidden flex flex-col relative font-sans">
+      <Toaster position="top-center" theme="dark" />
       
       {/* Dynamic Background */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
@@ -217,9 +272,14 @@ export default function App() {
             {/* LEFT SECTOR: Profile */}
             <div className="w-1/3 flex justify-start z-50">
                 <button onClick={() => setActiveTab('profile')} className="relative p-1 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all shadow-xl active:scale-95">
-                    {myProfile?.images?.[0] || myProfile?.img ? ( 
-                        <img src={myProfile.images?.[0] || myProfile.img} className="w-11 h-11 rounded-[14px] object-cover border border-white/5" /> 
-                    ) : ( <div className="w-11 h-11 flex items-center justify-center bg-white/5 rounded-[14px]"><User size={24} className="text-slate-400" /></div> )}
+                    <div className="w-11 h-11 rounded-[14px] overflow-hidden border border-white/5 bg-white/5">
+                        <Suspense fallback={null}>
+                            <SecureImage 
+                                src={myProfile?.images?.[0] || myProfile?.img} 
+                                className="w-full h-full object-cover" 
+                            />
+                        </Suspense>
+                    </div>
                 </button>
             </div>
 
@@ -296,7 +356,14 @@ export default function App() {
                             person.isAd ? (
                                 <AdCard key={person.id} ad={person} onSwipe={onSwipe} />
                             ) : (
-                                <Card key={person.id} person={person} myProfile={myProfile} onSwipe={onSwipe} onCardLeftScreen={handleCardLeftScreen} onInfo={setSelectedPerson} />
+                                <Card 
+                                    key={person.id} 
+                                    person={person} 
+                                    myProfile={myProfile} 
+                                    onSwipe={onSwipe} 
+                                    onCardLeftScreen={handleCardLeftScreen} 
+                                    onInfo={setSelectedPerson} 
+                                />
                             )
                         ))
                     )}
@@ -321,12 +388,21 @@ export default function App() {
       {/* Global Modals Layer */}
       <AnimatePresence>
         <Suspense fallback={<div className="fixed inset-0 bg-black/80 z-[110] flex items-center justify-center"><Loader2 className="animate-spin text-pink-500" size={32}/></div>}>
-          {activeTab === 'profile' && <CreateProfileForm user={user} existingData={myProfile} onCancel={handleCloseProfile} showToast={(msg) => alert(msg)} />}
+          {activeTab === 'profile' && (
+            <CreateProfileForm 
+                user={user} 
+                existingData={myProfile} 
+                onCancel={handleCloseProfile} 
+                onReportBug={() => setShowBugModal(true)} // ✅ Connect Bug Modal
+                showToast={(msg) => toast(msg)} 
+            />
+          )}
           {activeTab === 'chat' && <ChatModal user={user} onClose={() => setActiveTab('swipe')} />}
-          {activeTab === 'likes' && <LikesPage currentUser={user} onBack={() => setActiveTab('swipe')} onNavigateToChat={() => setActiveTab('chat')} />}
+          {activeTab === 'likes' && <LikesPage user={user} />}
           {selectedPerson && <DetailModal person={selectedPerson} onClose={() => setSelectedPerson(null)} />}
           {reportingPerson && <ReportModal person={reportingPerson} onConfirm={() => setReportingPerson(null)} onCancel={() => setReportingPerson(null)} />}
           {matchData && <MatchPopup person={matchData} onClose={() => setMatchData(null)} onChat={() => { setMatchData(null); setActiveTab('chat'); }} />}
+          {showBugModal && <BugReportModal user={user} onClose={() => setShowBugModal(false)} />} {/* ✅ Render Bug Modal */}
         </Suspense>
       </AnimatePresence>
     </div>
