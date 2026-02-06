@@ -3,9 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Eye, ExternalLink, Heart, X, Sparkles, CheckCircle2 } from 'lucide-react';
 import { doc, updateDoc, collection, query, where, onSnapshot } from 'firebase/firestore'; 
 import { db } from '../firebase';
-import { SecureImage } from './SecureImage'; 
 
-// ✅ 1. YOUR ADSTERRA DIRECT LINK
+// ✅ FIXED IMPORT: Pointing to the components folder
+import { SecureImage } from '../components/SecureImage'; 
+
+// ✅ YOUR ADSTERRA DIRECT LINK
 const AD_LINK = "https://www.effectivegatecpm.com/r6w2gzk3?key=ac76c970958e7e558ee02341e09af460"; 
 
 export const LikesPage = ({ user }) => {
@@ -14,11 +16,10 @@ export const LikesPage = ({ user }) => {
   const [selectedMatch, setSelectedMatch] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // --- 2. FETCH INCOMING LIKES ---
+  // --- FETCH INCOMING LIKES ---
   useEffect(() => {
     if (!user) return;
 
-    // Query: Who liked ME?
     const q = query(
       collection(db, "interactions"),
       where("toUserId", "==", user.uid),
@@ -38,7 +39,7 @@ export const LikesPage = ({ user }) => {
     return () => unsubscribe();
   }, [user]);
 
-  // --- 3. HANDLE WATCH AD ---
+  // --- HANDLE WATCH AD ---
   const handleWatchAd = () => {
     if (!selectedMatch) return;
 
@@ -54,7 +55,7 @@ export const LikesPage = ({ user }) => {
     };
     window.addEventListener('visibilitychange', checkFocus);
     
-    // Fallback: Unlock anyway after 5 seconds if logic fails
+    // Fallback: Unlock anyway after 5 seconds
     setTimeout(() => unlockProfile(selectedMatch.id), 5000);
   };
 
@@ -94,7 +95,6 @@ export const LikesPage = ({ user }) => {
                    <p className="text-slate-400 font-medium">No likes yet. Keep your profile updated!</p>
                </div>
            ) : (
-               // ✅ RESPONSIVE GRID: 2 cols on mobile, 4 cols on tablet, 5 on desktop
                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6">
                    {likes.map((like) => (
                        <motion.div 
@@ -113,7 +113,7 @@ export const LikesPage = ({ user }) => {
                                />
                            </div>
 
-                           {/* LOCK OVERLAY (If not revealed) */}
+                           {/* LOCK OVERLAY */}
                            {!like.isRevealed && (
                                <div className="absolute inset-0 flex flex-col items-center justify-center z-10 p-4 text-center">
                                    <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center mb-3 group-hover:bg-white/20 transition-colors">
@@ -125,7 +125,7 @@ export const LikesPage = ({ user }) => {
                                </div>
                            )}
 
-                           {/* NAME TAG (If revealed) */}
+                           {/* NAME TAG */}
                            {like.isRevealed && (
                                <div className="absolute bottom-0 w-full p-4 bg-gradient-to-t from-black via-black/80 to-transparent">
                                    <p className="text-white font-bold text-base truncate">{like.fromData?.name}</p>
@@ -138,7 +138,7 @@ export const LikesPage = ({ user }) => {
            )}
        </div>
 
-       {/* --- 4. THE REVEAL MODAL --- */}
+       {/* --- REVEAL MODAL --- */}
        <AnimatePresence>
          {showAdModal && (
            <motion.div 
@@ -147,7 +147,6 @@ export const LikesPage = ({ user }) => {
            >
              <div className="w-full max-w-sm bg-[#111] rounded-[2.5rem] p-8 border border-white/10 text-center relative shadow-2xl overflow-hidden">
                 
-                {/* Close Button */}
                 <button 
                     onClick={() => setShowAdModal(false)} 
                     className="absolute top-5 right-5 text-slate-500 hover:text-white transition-colors"
@@ -155,14 +154,12 @@ export const LikesPage = ({ user }) => {
                     <X size={24}/>
                 </button>
 
-                {/* Header Icon */}
                 <div className="w-20 h-20 bg-gradient-to-br from-pink-500/20 to-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse border border-pink-500/20">
                     <Sparkles size={32} className="text-pink-500 fill-pink-500/20" />
                 </div>
                 
                 <h3 className="text-2xl font-black text-white italic mb-3">Unlock Profile?</h3>
                 
-                {/* The "Why" - Transparency */}
                 <div className="bg-white/5 rounded-2xl p-4 mb-6 border border-white/5">
                     <p className="text-slate-300 text-xs leading-relaxed font-medium">
                         <span className="text-pink-400 font-bold block mb-1 uppercase tracking-wider text-[10px]">Community Project</span>
@@ -170,7 +167,6 @@ export const LikesPage = ({ user }) => {
                     </p>
                 </div>
 
-                {/* The "How" - Instructions */}
                 <div className="text-left space-y-3 mb-8 px-2">
                     <div className="flex items-center gap-3 text-xs text-slate-400">
                         <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center text-[10px] font-bold text-white">1</div>
@@ -186,7 +182,6 @@ export const LikesPage = ({ user }) => {
                     </div>
                 </div>
 
-                {/* THE "WATCH AD" BUTTON */}
                 <button 
                     onClick={handleWatchAd}
                     className="group w-full py-4 bg-gradient-to-r from-pink-600 to-purple-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-pink-900/20 active:scale-95 transition-all hover:scale-[1.02]"
